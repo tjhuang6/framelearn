@@ -1,84 +1,84 @@
 # FrameLearn
 
-An AI agent that converts programming tutorial videos (Bilibili / YouTube) into structured, step-by-step text-and-image documents — so you can learn at your own pace and ask AI questions when you get stuck.
+一个 AI Agent，将 Bilibili / YouTube 编程教学视频自动转换为图文教程——让你按自己的节奏学习，遇到不懂的地方随时向 AI 提问。
 
-## What It Does
+## 它能做什么
 
-1. **Downloads** a video from Bilibili or YouTube via URL
-2. **Analyzes** the video structure autonomously (intro, setup, core code, testing, summary)
-3. **Extracts** key frames at meaningful moments (code changes, errors, test results)
-4. **Generates** a Markdown tutorial with screenshots and step-by-step explanations
-5. **Answers questions** about the video content interactively
+1. **下载**：通过 URL 下载 Bilibili 或 YouTube 视频
+2. **分析**：自主分析视频结构（简介、环境配置、核心代码、测试、总结）
+3. **提取**：在关键时刻截取帧（代码变化、报错、测试结果）
+4. **生成**：输出带截图和逐步说明的 Markdown 教程
+5. **问答**：生成教程后，可以针对视频内容进行交互式提问
 
-## Example
+## 使用示例
 
 ```bash
 framelearn run "https://www.bilibili.com/video/BV1xx411c7mD"
 ```
 
-Output: `output/tutorial.md` — a complete image-and-text tutorial with code blocks, screenshots, and section headings.
+输出：`output/tutorial.md` — 一份完整的图文教程，包含代码块、截图和章节标题。
 
-## Architecture
+## 架构
 
 ```
 FrameLearn
-├── Planner Agent       # Analyzes video structure, creates a conversion plan
-├── Tool Executor       # Calls yt-dlp, ffmpeg, OCR as needed
-├── Content Analyzer    # Detects key frames, identifies code, segments chapters
-├── Document Generator  # Produces structured Markdown output
-└── QA Module           # Answers user questions based on video content
+├── 规划 Agent          # 分析视频结构，制定转换计划
+├── 工具执行器          # 调用 yt-dlp、ffmpeg、OCR 等工具
+├── 内容分析器          # 识别关键帧，提取代码，切分章节
+├── 文档生成器          # 输出结构化 Markdown 教程
+└── 问答模块            # 基于视频内容回答用户提问
 ```
 
-## Tech Stack
+## 技术栈
 
-- **Claude API** (Anthropic) — agent orchestration, content analysis, QA
-- **yt-dlp** — video downloading (YouTube & Bilibili)
-- **ffmpeg** — frame extraction and video processing
-- **Tesseract / pytesseract** — OCR for code recognition in frames
-- **LangChain** — tool calling framework and agent loop
+- **Claude API**（Anthropic）— Agent 调度、内容分析、问答
+- **yt-dlp** — 视频下载，支持 YouTube 和 Bilibili
+- **ffmpeg** — 帧提取与视频处理
+- **Tesseract / pytesseract** — OCR，识别帧中的代码文字
+- **LangChain** — 工具调用框架与 Agent 循环
 - **Python 3.11+**
 
-## Quickstart
+## 快速上手
 
 ```bash
-# 1. Clone the repo
+# 1. 克隆仓库
 git clone https://github.com/yourname/framelearn.git
 cd framelearn
 
-# 2. Install dependencies
+# 2. 安装依赖
 uv sync
 
-# 3. Set your API key
+# 3. 配置 API Key
 export ANTHROPIC_API_KEY=your_key_here
 
-# 4. Run on a video
+# 4. 运行
 python -m framelearn run "https://www.youtube.com/watch?v=example"
 ```
 
-## Output Format
+## 输出格式
 
-Each generated tutorial includes:
+生成的教程包含：
 
-- Chapter headings matching the video structure
-- Key frame screenshots at critical moments
-- Code blocks extracted from the video
-- Step-by-step explanations for each segment
-- Timestamps linking back to the source video
+- 与视频结构对应的章节标题
+- 关键时刻的截图
+- 从视频中提取的代码块
+- 每个片段的逐步说明
+- 指向源视频对应时间点的时间戳链接
 
-## Interactive QA
+## 交互式问答
 
-After the tutorial is generated, you can ask questions about it:
+教程生成后，可以直接提问：
 
 ```bash
-python -m framelearn ask "Why does the author use a virtual environment in step 3?"
+python -m framelearn ask "第 3 步为什么要用虚拟环境？"
 ```
 
-The agent references the original video content and generated notes to answer accurately.
+Agent 会结合原始视频内容和生成的笔记给出准确的回答。
 
-## Docs
+## 文档
 
-- [Technical Architecture](docs/architecture.md)
+- [技术架构](docs/architecture.zh.md)
 
-## License
+## 开源协议
 
 MIT
