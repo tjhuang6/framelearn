@@ -15,7 +15,15 @@
 ## 使用示例
 
 ```bash
-framelearn run "https://www.bilibili.com/video/BV1xx411c7mD"
+# 处理在线视频（自然语言）
+framelearn "帮我把这个视频转成文档 https://www.bilibili.com/video/BV1xx411c7mD"
+
+# 处理本地视频（自然语言）
+framelearn "处理这个本地视频 /Users/iwill/Downloads/tutorial.mp4"
+
+# 传统命令格式（向后兼容）
+framelearn run "https://www.youtube.com/watch?v=example"
+framelearn run "/path/to/video.mp4"
 ```
 
 输出：`output/tutorial.md` — 一份完整的图文教程，包含代码块、截图和章节标题。
