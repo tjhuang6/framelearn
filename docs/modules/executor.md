@@ -12,8 +12,17 @@
 
 目标：从视频 URL 生成采样帧 + 带时间戳文字稿，供规划 Agent 分析。
 
+字幕优先策略：
+- **Bilibili**：先调 B站 API 获取官方字幕 → 有字幕直接用，跳过音频下载和 Whisper
+- **YouTube**：先用 yt-dlp 下载官方或自动生成字幕 → 有字幕直接用
+- **无字幕时**：提取音频 → Whisper（本地）或 Groq Whisper API 转写
+
 ```
-download_video → extract_audio → transcribe_audio → extract_sample_frames
+fetch_subtitle（优先）
+  ├─ 成功 → 直接得到带时间戳文字稿
+  └─ 失败 → download_video → extract_audio → transcribe_audio
+
+extract_sample_frames（始终执行，用于规划 Agent）
 ```
 
 ### 全量阶段（规划 Agent 之后）
