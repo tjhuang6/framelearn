@@ -24,7 +24,7 @@ VectorSearch（Chroma 检索，取 top-5 段落）
    ↓
 ContextBuilder（GSSC：选取最相关的段落，控制 token 数）
    ↓
-Claude API（生成回答）
+LLM Provider（生成回答）
    ↓
 Memory（存储对话历史，支持多轮追问）
 ```
