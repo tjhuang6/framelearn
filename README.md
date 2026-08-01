@@ -46,7 +46,7 @@ FrameLearn
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/yourname/framelearn.git
+git clone https://github.com/tjhuang6/framelearn.git
 cd framelearn
 
 # 2. 安装依赖
