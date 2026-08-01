@@ -33,11 +33,12 @@ FrameLearn
 
 ## Tech Stack
 
-- **Claude API** (Anthropic) — agent orchestration, video content analysis, QA
 - **HelloAgents** — lightweight agent framework providing ReAct loop and tool registry
-- **yt-dlp** — video downloading (YouTube & Bilibili)
+- **LLM Provider (configurable)** — Gemini 2.0 Flash recommended for vision tasks, DeepSeek for text; Claude, OpenRouter, and custom endpoints also supported
+- **yt-dlp** — video downloading (YouTube & Bilibili); also used to download YouTube subtitles
+- **Bilibili API** — fetches official subtitles first; skips Whisper when subtitles are available
 - **ffmpeg** — frame extraction and video processing
-- **Whisper** (OpenAI) — local speech-to-text with timestamped transcripts
+- **Whisper** (OpenAI) — local speech-to-text with timestamped transcripts when no subtitles available; Groq API also supported
 - **Tesseract / pytesseract** — OCR for code recognition in frames
 - **Chroma** — vector database for RAG-based QA retrieval
 - **Python 3.11+**
