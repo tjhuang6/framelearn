@@ -4,13 +4,9 @@ Loads settings from settings.toml (normal config) and .env (secrets).
 """
 
 import os
+import tomllib
 from pathlib import Path
 from typing import Any, Optional
-
-try:
-    import tomllib  # Python 3.11+
-except ImportError:
-    import tomli as tomllib  # fallback for older Python
 
 from dotenv import load_dotenv
 
