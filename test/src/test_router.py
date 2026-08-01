@@ -90,19 +90,20 @@ class TestRunCommand:
         video.write_bytes(b"\x00")
         router, _ = make_router()
 
-        # Mock VideoPipeline to avoid actual processing
-        with patch('framelearn.pipeline.video_pipeline.VideoPipeline') as mock_pipeline:
-            from framelearn.pipeline import PipelineResult
+        # Mock the VideoPipeline class itself
+        from framelearn.pipeline import PipelineResult
+        mock_result = PipelineResult(
+            output_dir=tmp_path,
+            markdown_path=tmp_path / "index.md",
+            keyframes=[],
+            subtitle_text="",
+            error=None,
+        )
+
+        with patch('framelearn.pipeline.VideoPipeline') as mock_cls:
             mock_instance = MagicMock()
-            mock_result = PipelineResult(
-                output_dir=tmp_path,
-                markdown_path=tmp_path / "index.md",
-                keyframes=[],
-                subtitle_text="",
-                error=None,
-            )
             mock_instance.run.return_value = mock_result
-            mock_pipeline.return_value = mock_instance
+            mock_cls.return_value = mock_instance
 
             router.execute(f"run {video}")
             out = capsys.readouterr().out
