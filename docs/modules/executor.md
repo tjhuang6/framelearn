@@ -10,19 +10,27 @@
 
 ### 预处理阶段（规划 Agent 之前）
 
-目标：从视频 URL 生成采样帧 + 带时间戳文字稿，供规划 Agent 分析。
+目标：从视频来源（URL 或本地文件）生成采样帧 + 带时间戳文字稿，供规划 Agent 分析。
 
 字幕优先策略：
-- **Bilibili**：先调 B站 API 获取官方字幕 → 有字幕直接用，跳过音频下载和 Whisper
-- **YouTube**：先用 yt-dlp 下载官方或自动生成字幕 → 有字幕直接用
+- **Bilibili URL**：先调 B站 API 获取官方字幕 → 有字幕直接用，跳过音频下载和 Whisper
+- **YouTube URL**：先用 yt-dlp 下载官方或自动生成字幕 → 有字幕直接用
+- **本地文件**：检查同目录 `.srt` / `.vtt` 字幕文件 → 有字幕直接用
 - **无字幕时**：提取音频 → Whisper（本地）或 Groq Whisper API 转写
 
 ```
-fetch_subtitle（优先）
-  ├─ 成功 → 直接得到带时间戳文字稿
-  └─ 失败 → download_video → extract_audio → transcribe_audio
-
-extract_sample_frames（始终执行，用于规划 Agent）
+来源判断：
+  ├─ 在线视频 URL：
+  │   ├─ fetch_subtitle（优先）
+  │   │    ├─ 成功 → 直接得到带时间戳文字稿
+  │   │    └─ 失败 → download_video → extract_audio → transcribe_audio
+  │   └─ extract_sample_frames（始终执行）
+  │
+  └─ 本地视频文件：
+      ├─ load_local_subtitle（检查同目录 .srt/.vtt）
+      │    ├─ 成功 → 解析字幕文件得到文字稿
+      │    └─ 失败 → extract_audio → transcribe_audio
+      └─ extract_sample_frames（始终执行）
 ```
 
 ### 全量阶段（规划 Agent 之后）
