@@ -9,7 +9,13 @@ FrameLearn 是一个多步骤 AI Agent 系统，基于 [Hello-Agents](https://gi
 整体流程：
 
 ```
-视频 URL
+用户输入（自然语言或传统命令）
+   ↓
+CommandParser（意图识别）→ 传统命令跳过，自然语言调用 LLM 解析
+   ↓
+CommandRouter（命令路由）→ run / ask / summarize
+   ↓
+视频 URL（run 分支）
    ↓
 工具执行器（预处理阶段）
    ├── Bilibili：优先获取官方字幕 → 无字幕时提取音频 → Whisper 转写
