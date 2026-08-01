@@ -298,13 +298,25 @@ $ framelearn run "https://youtube.com/watch?v=xxx"
 $ framelearn "帮我处理这个视频"
 
 [CommandParser] 解析意图...
-[CommandParser] → error: 缺少视频链接
-❌ 错误：缺少视频链接
-提示：请提供完整的 YouTube 或 Bilibili 视频链接
+[CommandParser] → error: 缺少视频链接或文件路径
+❌ 错误：缺少视频链接或文件路径
+提示：请提供完整的 YouTube / Bilibili 视频链接，或本地视频文件路径
 
 示例：
   framelearn "处理这个视频 https://bilibili.com/video/BV1xx..."
   framelearn run "https://youtube.com/watch?v=xxx"
+  framelearn run "/path/to/video.mp4"
+```
+
+### 示例 5b：本地文件不存在
+
+```bash
+$ framelearn run "/Users/iwill/nonexistent.mp4"
+
+[CommandParser] 检测到传统命令格式，跳过解析
+[CommandRouter] 验证视频来源...
+❌ 错误：文件不存在：/Users/iwill/nonexistent.mp4
+提示：请检查文件路径是否正确
 ```
 
 ---
