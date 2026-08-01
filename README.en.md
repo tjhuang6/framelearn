@@ -15,7 +15,15 @@ An AI agent that converts programming tutorial videos (Bilibili / YouTube) into 
 ## Example
 
 ```bash
-framelearn run "https://www.bilibili.com/video/BV1xx411c7mD"
+# Process online video (natural language)
+framelearn "Convert this video to a tutorial https://www.youtube.com/watch?v=example"
+
+# Process local video (natural language)
+framelearn "Process this local video /Users/iwill/Downloads/tutorial.mp4"
+
+# Traditional command format (backward compatible)
+framelearn run "https://www.youtube.com/watch?v=example"
+framelearn run "/path/to/video.mp4"
 ```
 
 Output: `output/tutorial.md` — a complete image-and-text tutorial with code blocks, screenshots, and section headings.
