@@ -255,7 +255,7 @@ class TestDocumentGenerator:
         frame = tmp_path / "frame.jpg"
         frame.touch()
 
-        with patch('framelearn.pipeline.doc_generator.AppServerSession') as mock_session:
+        with patch('framelearn.app_server.session.AppServerSession') as mock_session:
             mock_instance = Mock()
             mock_result = Mock()
             mock_result.error = None
@@ -275,7 +275,7 @@ class TestDocumentGenerator:
         frame = tmp_path / "frame.jpg"
         frame.touch()
 
-        with patch('framelearn.pipeline.doc_generator.AppServerSession') as mock_session:
+        with patch('framelearn.app_server.session.AppServerSession') as mock_session:
             mock_instance = Mock()
             mock_result = Mock()
             mock_result.error = None
@@ -295,7 +295,7 @@ class TestDocumentGenerator:
         frame = tmp_path / "frame.jpg"
         frame.touch()
 
-        with patch('framelearn.pipeline.doc_generator.AppServerSession') as mock_session:
+        with patch('framelearn.app_server.session.AppServerSession') as mock_session:
             mock_instance = Mock()
             mock_result = Mock()
             mock_result.error = "API failed"
