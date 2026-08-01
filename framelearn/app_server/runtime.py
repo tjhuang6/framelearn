@@ -65,7 +65,7 @@ class RuntimeAdapter:
     # Public API
     # ------------------------------------------------------------------
 
-    def run_turn(self, user_text: str) -> RunResult:
+    def run_turn(self, user_text: str, ui_callback: Optional[Callable[[dict], None]] = None) -> RunResult:
         """
         Send a user message and return the completed turn result.
 
