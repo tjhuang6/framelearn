@@ -8,56 +8,93 @@ from framelearn.command_parser import CommandParser
 from framelearn.router import CommandRouter
 
 
+_BANNER = """
+FrameLearn — AI 编程教程学习助手
+输入你的问题或需求，直接回车发送。
+输入 help 查看命令，输入 exit 或按 Ctrl+C 退出。
+"""
+
+
 def _check_codex():
-    """Warn if codex CLI is not found (required for ask command)."""
     if not shutil.which("codex"):
         print("⚠️  警告：未找到 codex CLI，ask 命令将无法使用")
         print("   安装：npm install -g @openai/codex")
         print()
 
 
-def main():
-    """Main entry point for FrameLearn CLI."""
-    if len(sys.argv) < 2:
-        print("用法：framelearn <命令或自然语言描述>")
-        print("示例：")
-        print('  framelearn "帮我处理这个视频 https://..."')
-        print('  framelearn ask "第 3 章讲了什么"')
-        print('  framelearn help')
-        sys.exit(1)
+def _run_once(user_input: str, parser: CommandParser, router: CommandRouter):
+    """Parse and execute a single input. Returns exit code."""
+    try:
+        command = parser.parse(user_input)
+        if not parser._is_traditional_command(user_input):
+            print(f"[→ {command}]")
+    except ValueError as e:
+        print(f"❌ {e}")
+        return 1
+    except Exception as e:
+        print(f"❌ 解析失败：{e}")
+        return 1
 
-    user_input = " ".join(sys.argv[1:])
-    workspace = os.getcwd()
+    try:
+        router.execute(command)
+        return 0
+    except ValueError as e:
+        print(f"❌ {e}")
+        return 1
+    except Exception as e:
+        print(f"❌ {e}")
+        return 1
 
+
+def _repl(workspace: str):
+    """Interactive REPL mode."""
+    print(_BANNER)
     _check_codex()
 
     parser = CommandParser()
     router = CommandRouter(workspace=workspace)
 
     try:
-        command = parser.parse(user_input)
-        if not parser._is_traditional_command(user_input):
-            print(f"[解析意图] → {command}")
-    except ValueError as e:
-        print(f"❌ 错误：{e}")
-        print("\n提示：使用传统命令格式：")
-        print('  framelearn run "https://..."')
-        print('  framelearn run "/path/to/video.mp4"')
-        print('  framelearn ask "你的问题"')
-        sys.exit(1)
-    except Exception as e:
-        print(f"❌ 解析失败：{e}")
-        print("请检查 .env 文件中的 TEXT_PROVIDER 和 TEXT_API_KEY 配置")
-        sys.exit(1)
+        while True:
+            try:
+                user_input = input("你 > ").strip()
+            except EOFError:
+                print()
+                break
+
+            if not user_input:
+                continue
+
+            if user_input.lower() in ("exit", "quit", "q", "bye", "退出"):
+                print("再见")
+                break
+
+            _run_once(user_input, parser, router)
+            print()
+    except KeyboardInterrupt:
+        print("\n再见")
+    finally:
+        router.close()
+
+
+def main():
+    """Main entry point for FrameLearn CLI."""
+    workspace = os.getcwd()
+
+    # No arguments → enter interactive REPL
+    if len(sys.argv) < 2:
+        _repl(workspace)
+        return
+
+    _check_codex()
+
+    user_input = " ".join(sys.argv[1:])
+    parser = CommandParser()
+    router = CommandRouter(workspace=workspace)
 
     try:
-        router.execute(command)
-    except ValueError as e:
-        print(f"❌ 执行失败：{e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"❌ 未知错误：{e}")
-        sys.exit(1)
+        code = _run_once(user_input, parser, router)
+        sys.exit(code)
     finally:
         router.close()
 
