@@ -162,17 +162,29 @@ pytest tests/ -v
 
 ### 6. 集成测试（手动）
 
-- [ ] 测试自然语言输入：
+- [ ] 测试自然语言输入（在线视频）：
   ```bash
   python -m framelearn "帮我处理这个视频 https://youtube.com/watch?v=dQw4w9WgXcQ"
   ```
-  预期：打印 `[解析意图] → run https://...`，然后 "TODO: 视频处理流水线未实现"
+  预期：打印 `[解析意图] → run https://...`，然后 "TODO: 在线视频处理流水线未实现"
 
-- [ ] 测试传统命令：
+- [ ] 测试自然语言输入（本地文件）：
+  ```bash
+  python -m framelearn "处理本地视频 /tmp/test.mp4"
+  ```
+  预期：打印 `[解析意图] → run /tmp/test.mp4`，检查文件存在性
+
+- [ ] 测试传统命令（URL）：
   ```bash
   python -m framelearn run "https://bilibili.com/video/BV1xx..."
   ```
   预期：跳过意图识别，直接打印 TODO
+
+- [ ] 测试传统命令（本地文件）：
+  ```bash
+  python -m framelearn run "/path/to/video.mp4"
+  ```
+  预期：跳过意图识别，验证文件存在
 
 - [ ] 测试问答：
   ```bash
@@ -180,11 +192,23 @@ pytest tests/ -v
   ```
   预期：打印 `[解析意图] → ask 第 3 章讲了什么`，然后 TODO
 
-- [ ] 测试错误处理：
+- [ ] 测试错误处理（缺少来源）：
   ```bash
   python -m framelearn "处理这个视频"
   ```
-  预期：提示缺少视频链接
+  预期：提示缺少视频链接或文件路径
+
+- [ ] 测试错误处理（文件不存在）：
+  ```bash
+  python -m framelearn run "/nonexistent/video.mp4"
+  ```
+  预期：提示文件不存在
+
+- [ ] 测试错误处理（无效格式）：
+  ```bash
+  python -m framelearn run "/path/to/document.pdf"
+  ```
+  预期：提示不支持的文件格式
 
 - [ ] 测试帮助：
   ```bash
@@ -195,6 +219,7 @@ pytest tests/ -v
 **验收标准**：
 - 所有手动测试场景符合预期
 - 错误提示友好清晰
+- URL 和本地文件路径都能正确识别
 
 ---
 
