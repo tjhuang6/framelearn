@@ -60,7 +60,7 @@ class DocGenerator(SimpleAgent):
         """
         生成单个章节的 Markdown 内容：
         1. 写入 ## 章节标题和时间范围
-        2. 调用 Claude 整理文字稿 → 书面表达
+        2. 调用 LLM Provider 整理文字稿 → 书面表达
         3. 插入关键帧截图
         4. 格式化代码块（OCR 文字 + 语言标签）
         5. 添加时间戳链接
