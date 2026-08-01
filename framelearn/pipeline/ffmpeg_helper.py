@@ -14,8 +14,48 @@ class FFmpegHelper:
         return shutil.which("ffmpeg") is not None
 
     @staticmethod
+    def has_audio_stream(video_path: str) -> bool:
+        """Check if video file has an audio stream."""
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a",
+             "-show_entries", "stream=codec_type", "-of", "default=nw=1",
+             video_path],
+            capture_output=True, text=True,
+        )
+        return "audio" in result.stdout
+
+    @staticmethod
+    def find_companion_audio(video_path: str) -> Path | None:
+        """Find a companion audio file (mp3/m4a/aac) in the same directory.
+
+        Bilibili downloads often split video and audio into separate files.
+        This looks for an audio file with a matching stem prefix.
+        """
+        video = Path(video_path)
+        parent = video.parent
+        stem = video.stem
+
+        # Try exact stem match with audio extensions
+        for ext in (".mp3", ".m4a", ".aac", ".wav"):
+            candidate = parent / f"{stem}{ext}"
+            if candidate.exists():
+                return candidate
+
+        # Try stem with different quality suffix (e.g., -30080 vs -30280)
+        # Strip trailing quality code: "name-30080" → "name"
+        base_stem = stem.rsplit("-", 1)[0] if "-" in stem else stem
+        for f in parent.iterdir():
+            if f.suffix in (".mp3", ".m4a", ".aac") and f.stem.startswith(base_stem):
+                return f
+
+        return None
+
+    @staticmethod
     def extract_audio(video_path: str, output_path: str) -> bool:
         """Extract audio track to m4a format.
+
+        If the video has no audio stream, looks for a companion audio file
+        in the same directory (common with Bilibili split downloads).
 
         Args:
             video_path: Path to input video
@@ -24,20 +64,30 @@ class FFmpegHelper:
         Returns:
             True if successful, False otherwise
         """
+        # Check if video has audio stream
+        if not FFmpegHelper.has_audio_stream(video_path):
+            companion = FFmpegHelper.find_companion_audio(video_path)
+            if companion:
+                print(f"📎 使用伴随音频文件：{companion.name}")
+                # Convert companion audio to m4a at 16kHz
+                try:
+                    subprocess.run(
+                        ["ffmpeg", "-i", str(companion),
+                         "-acodec", "aac", "-ar", "16000", "-y", output_path],
+                        check=True, capture_output=True, text=True,
+                    )
+                    return True
+                except subprocess.CalledProcessError:
+                    return False
+            else:
+                print("❌ 视频无音轨，且未找到伴随音频文件")
+                return False
+
         try:
             subprocess.run(
-                [
-                    "ffmpeg",
-                    "-i", video_path,
-                    "-vn",  # no video
-                    "-acodec", "aac",
-                    "-ar", "16000",  # 16kHz sample rate
-                    "-y",  # overwrite
-                    output_path,
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
+                ["ffmpeg", "-i", video_path,
+                 "-vn", "-acodec", "aac", "-ar", "16000", "-y", output_path],
+                check=True, capture_output=True, text=True,
             )
             return True
         except subprocess.CalledProcessError:
@@ -74,45 +124,27 @@ class FFmpegHelper:
         # Scene detection frames
         try:
             subprocess.run(
-                [
-                    "ffmpeg",
-                    "-i", video_path,
-                    "-vf", f"select='gt(scene,{scene_threshold})',scale=1280:-1",
-                    "-vsync", "vfr",
-                    "-q:v", "2",
-                    "-y",
-                    str(scene_dir / "frame_%04d.jpg"),
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except subprocess.CalledProcessError:
-            pass  # If scene detection fails, rely on fallback
-
-        # Fallback timing frames
-        try:
-            subprocess.run(
-                [
-                    "ffmpeg",
-                    "-i", video_path,
-                    "-vf", f"fps=1/{fallback_interval},scale=1280:-1",
-                    "-q:v", "2",
-                    "-y",
-                    str(fallback_dir / "fallback_%04d.jpg"),
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
+                ["ffmpeg", "-i", video_path,
+                 "-vf", f"select='gt(scene,{scene_threshold})',scale=1280:-1",
+                 "-vsync", "vfr", "-q:v", "2", "-y",
+                 str(scene_dir / "frame_%04d.jpg")],
+                check=True, capture_output=True, text=True,
             )
         except subprocess.CalledProcessError:
             pass
 
-        # Collect all frames
+        # Fallback timing frames
+        try:
+            subprocess.run(
+                ["ffmpeg", "-i", video_path,
+                 "-vf", f"fps=1/{fallback_interval},scale=1280:-1",
+                 "-q:v", "2", "-y",
+                 str(fallback_dir / "fallback_%04d.jpg")],
+                check=True, capture_output=True, text=True,
+            )
+        except subprocess.CalledProcessError:
+            pass
+
         all_frames = sorted(scene_dir.glob("*.jpg")) + sorted(fallback_dir.glob("*.jpg"))
-
-        # Sort by timestamp (embedded in filename or file creation time)
         all_frames.sort()
-
-        # Limit to max_frames
         return all_frames[:max_frames]
