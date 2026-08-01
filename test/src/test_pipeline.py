@@ -148,7 +148,6 @@ class TestASRAdapter:
 
         with patch.dict('os.environ', {'SILICONFLOW_API_KEY': 'sk-valid'}):
             with patch('httpx.post') as mock_post:
-                # First call: 429, second call: success
                 error_response = Mock()
                 error_response.status_code = 429
 
@@ -156,14 +155,14 @@ class TestASRAdapter:
                 success_response.json.return_value = {"text": "success"}
                 success_response.raise_for_status = Mock()
 
-                from httpx import HTTPStatusError, Request, Response
+                from httpx import HTTPStatusError, Request
                 mock_post.side_effect = [
                     HTTPStatusError("rate limit", request=Mock(spec=Request), response=error_response),
                     success_response,
                 ]
 
-                with patch('time.sleep'):  # Speed up test
-                    adapter = ASRAdapter()
+                with patch('time.sleep'):
+                    adapter = ASRAdapter(provider="siliconflow")
                     result = adapter.transcribe(str(audio), max_retries=3)
                     assert result.full_text == "success"
 
