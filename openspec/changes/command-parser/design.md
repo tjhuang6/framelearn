@@ -235,12 +235,40 @@ CommandParser.parse():
 
 CommandRouter.execute("run https://..."):
   1. 分割：cmd = "run", args = "https://..."
-  2. 验证 URL 格式
-  3. 调用 VideoPipeline.run(url)
+  2. 检测是 URL（startswith "http"）
+  3. 验证 URL 格式（Bilibili / YouTube）
+  4. 调用 VideoPipeline.run_from_url(url)
 
      ↓
 
-[视频处理流水线开始]
+[视频处理流水线开始 - 在线视频分支]
+```
+
+### 场景 1b：自然语言处理本地文件
+
+```
+用户输入：
+  framelearn "处理这个本地视频 /Users/iwill/Downloads/tutorial.mp4"
+
+     ↓
+
+CommandParser.parse():
+  1. 检测不是传统命令
+  2. 调用 LLM
+  3. 返回："run /Users/iwill/Downloads/tutorial.mp4"
+
+     ↓
+
+CommandRouter.execute("run /Users/..."):
+  1. 分割：cmd = "run", args = "/Users/..."
+  2. 检测不是 URL
+  3. 验证文件存在（os.path.isfile）
+  4. 验证文件格式（.mp4 / .mkv 等）
+  5. 调用 VideoPipeline.run_from_file(path)
+
+     ↓
+
+[视频处理流水线开始 - 本地文件分支]
 ```
 
 ### 场景 2：传统命令（向后兼容）
