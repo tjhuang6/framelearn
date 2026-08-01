@@ -84,9 +84,15 @@ class VideoPipeline:
             cleaner = SubtitleCleaner()
             cleaned_subtitle = cleaner.clean(transcript.full_text)
 
-            # Save subtitle
+            # Save subtitle text
             subtitle_path = src_dir / "subtitle.txt"
             subtitle_path.write_text(cleaned_subtitle, encoding="utf-8")
+
+            # Save SRT if available (dashscope has timestamps)
+            if transcript.has_timestamps and transcript.srt:
+                srt_path = src_dir / "subtitle.srt"
+                srt_path.write_text(transcript.srt, encoding="utf-8")
+                print(f"✅ 字幕文件：{srt_path}")
 
             # Step 4: Extract keyframes
             print("🖼️  提取关键帧...")
