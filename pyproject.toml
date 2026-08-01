@@ -5,7 +5,8 @@ description = "AI Agent for converting programming tutorial videos to text tutor
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "anthropic>=0.34.0",
+    "httpx>=0.27.0",
+    "python-dotenv>=1.0.0",
 ]
 
 [project.scripts]
