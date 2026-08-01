@@ -1,0 +1,24 @@
+[project]
+name = "framelearn"
+version = "0.1.0"
+description = "AI Agent for converting programming tutorial videos to text tutorials"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.34.0",
+]
+
+[project.scripts]
+framelearn = "framelearn.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
