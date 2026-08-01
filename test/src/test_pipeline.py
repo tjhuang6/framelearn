@@ -129,7 +129,7 @@ class TestASRAdapter:
                 mock_response.raise_for_status = Mock()
                 mock_post.return_value = mock_response
 
-                adapter = ASRAdapter()
+                adapter = ASRAdapter(provider="siliconflow")
                 result = adapter.transcribe(str(audio))
 
                 assert result.full_text == "转录文字"
