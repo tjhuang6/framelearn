@@ -152,7 +152,7 @@ class VideoPipeline:
 
             return PipelineResult(
                 output_dir=self.output_dir,
-                markdown_path=md_path,
+                markdown_path=textbook_path,
                 keyframes=final_frames,
                 subtitle_text=cleaned_subtitle,
                 error=None,
