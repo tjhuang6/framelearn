@@ -85,13 +85,28 @@ class TestRunCommand:
         with pytest.raises(ValueError, match="不支持的文件格式"):
             router.execute(f"run {pdf}")
 
-    def test_valid_local_mp4_prints_todo(self, tmp_path, capsys):
+    def test_valid_local_mp4_calls_pipeline(self, tmp_path, capsys):
         video = tmp_path / "video.mp4"
         video.write_bytes(b"\x00")
         router, _ = make_router()
-        router.execute(f"run {video}")
-        out = capsys.readouterr().out
-        assert "TODO" in out
+
+        # Mock VideoPipeline to avoid actual processing
+        with patch('framelearn.router.VideoPipeline') as mock_pipeline:
+            from framelearn.pipeline import PipelineResult
+            mock_instance = MagicMock()
+            mock_result = PipelineResult(
+                output_dir=tmp_path,
+                markdown_path=tmp_path / "index.md",
+                keyframes=[],
+                subtitle_text="",
+                error=None,
+            )
+            mock_instance.run.return_value = mock_result
+            mock_pipeline.return_value = mock_instance
+
+            router.execute(f"run {video}")
+            out = capsys.readouterr().out
+            assert "输出目录" in out or "教材" in out
 
 
 # ------------------------------------------------------------------
