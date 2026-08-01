@@ -69,6 +69,22 @@ class OcrResult:
 
 所有工具实现 `BaseTool`，由 `ToolRegistry` 统一管理。
 
+### fetch_subtitle
+
+```python
+class FetchSubtitleTool(BaseTool):
+    name = "fetch_subtitle"
+    description = "优先获取视频官方字幕。Bilibili 调用 B站 API，YouTube 用 yt-dlp 下载字幕。"
+                  "成功时直接返回带时间戳文字稿，跳过音频下载和 Whisper 转写。"
+
+    def execute(self, url: str) -> list[TranscriptRow] | None:
+        """
+        Bilibili：调用 /x/player/v2 接口获取字幕列表，优先选中文字幕。
+        YouTube：yt-dlp --write-subs --sub-lang zh-Hans,en --skip-download
+        返回 None 表示无字幕，上层回退到 Whisper 流程。
+        """
+```
+
 ### download_video
 
 ```python
