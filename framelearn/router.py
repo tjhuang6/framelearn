@@ -102,7 +102,7 @@ class CommandRouter:
                 delta = params.get("delta", "")
                 print(delta, end="", flush=True)
 
-        result = runtime.run_turn(question)
+        result = runtime.run_turn(question, ui_callback=_ui)
         print()  # newline after streaming output
 
         if result.error:
