@@ -120,11 +120,17 @@ DEEPSEEK_API_KEY=your_key_here
 
 - [ ] 测试自然语言解析（mock LLM 返回）
   ```python
-  def test_natural_language_parse(mock_llm):
+  def test_natural_language_parse_url(mock_llm):
       mock_llm.invoke.return_value = "run https://bilibili.com/video/BV1xx"
       parser = CommandParser(mock_llm)
       result = parser.parse("帮我处理这个视频 https://...")
-      assert result.startswith("run")
+      assert result.startswith("run https://")
+  
+  def test_natural_language_parse_file(mock_llm):
+      mock_llm.invoke.return_value = "run /path/to/video.mp4"
+      parser = CommandParser(mock_llm)
+      result = parser.parse("处理本地视频 /path/to/video.mp4")
+      assert result.startswith("run /")
   ```
 
 - [ ] 测试错误处理
