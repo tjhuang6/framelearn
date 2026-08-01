@@ -73,7 +73,7 @@ class PlannerAgent(SimpleAgent):
         """
 
     def _build_prompt(self, frames: list[str], transcript_text: str) -> str:
-        """构建发送给 Claude 的分析 Prompt，附加严格的输出格式约束。"""
+        """构建发送给 LLM Provider 的分析 Prompt，附加严格的输出格式约束。"""
 
     def _parse_plan(self, llm_output: str) -> list[Chapter]:
         """
