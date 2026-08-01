@@ -1,6 +1,6 @@
 # FrameLearn
 
-中文 | [English](README.en.md)
+[中文](README.md) | English
 
 An AI agent that converts programming tutorial videos (Bilibili / YouTube) into structured, step-by-step text-and-image documents — so you can learn at your own pace and ask AI questions when you get stuck.
 
