@@ -88,12 +88,12 @@ class PlannerAgent(SimpleAgent):
 
 ```
 Thought: 需要了解视频整体结构，先分析开头和结尾的帧
-Action: send_frames_to_claude(frames=["frame_0s.jpg", "frame_60s.jpg", "frame_3600s.jpg"])
-Observation: Claude 返回：视频共约 60 分钟，识别到 5 个主题段落……
+Action: send_frames_to_llm(frames=["frame_0s.jpg", "frame_60s.jpg", "frame_3600s.jpg"])
+Observation: LLM 返回：视频共约 60 分钟，识别到 5 个主题段落……
 
 Thought: 需要确认中间段落的边界，再分析 20-40 分钟的帧
-Action: send_frames_to_claude(frames=["frame_1200s.jpg", "frame_1800s.jpg", "frame_2400s.jpg"])
-Observation: Claude 返回：20 分钟处是环境配置，30 分钟处开始核心代码……
+Action: send_frames_to_llm(frames=["frame_1200s.jpg", "frame_1800s.jpg", "frame_2400s.jpg"])
+Observation: LLM 返回：20 分钟处是环境配置，30 分钟处开始核心代码……
 
 Thought: 已有足够信息制定计划
 Action: create_plan(chapters=[...])
