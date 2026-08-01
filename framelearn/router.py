@@ -4,6 +4,7 @@ import os
 from typing import Optional
 
 from framelearn.app_server.runtime import RuntimeAdapter
+from framelearn.config import get as config_get
 
 
 HELP_TEXT = """
@@ -93,6 +94,15 @@ class CommandRouter:
         if not question:
             raise ValueError("缺少问题内容")
 
+        text_mode = config_get("runtime.text_mode", "appserver")
+
+        if text_mode == "api":
+            self._ask_via_api(question)
+        else:
+            self._ask_via_appserver(question)
+
+    def _ask_via_appserver(self, question: str):
+        """Ask via codex app-server (default)."""
         runtime = self._get_runtime()
 
         def _ui(event: dict):
@@ -110,6 +120,13 @@ class CommandRouter:
         elif result.final_text:
             # final_text already streamed via ui_callback; nothing more to print
             pass
+
+    def _ask_via_api(self, question: str):
+        """Ask via provider_adapter (direct API call)."""
+        from framelearn.provider_adapter import call_text_llm
+        print("使用 API 模式...")
+        answer = call_text_llm(question, max_tokens=2000)
+        print(answer)
 
     def _summarize_learning(self):
         print("请运行：/summarize-learning")
