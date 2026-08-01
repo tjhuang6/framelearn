@@ -84,10 +84,12 @@ class RuntimeAdapter:
         # 2. Ensure a live session exists
         self._ensure_session()
 
+        effective_ui = ui_callback or self._ui_callback
+
         # 3. Execute turn
         turn_result: TurnResult = self._session.run_turn(  # type: ignore[union-attr]
             text=user_text,
-            ui_callback=self._ui_callback,
+            ui_callback=effective_ui,
         )
 
         # 4. If session retired mid-turn, record the error and try once more
@@ -97,7 +99,7 @@ class RuntimeAdapter:
                 self._ensure_session()
                 turn_result = self._session.run_turn(  # type: ignore[union-attr]
                     text=user_text,
-                    ui_callback=self._ui_callback,
+                    ui_callback=effective_ui,
                 )
             except Exception as e:
                 return RunResult(
