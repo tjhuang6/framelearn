@@ -276,6 +276,8 @@ framelearn/
 ├── framelearn/
 │   ├── __init__.py
 │   ├── __main__.py
+│   ├── command_parser.py   # 自然语言命令解析
+│   ├── router.py            # 命令路由器
 │   ├── planner.py          # 规划 Agent（继承 HelloAgents SimpleAgent）
 │   ├── executor.py         # 工具执行器（HelloAgents 工具注册）
 │   ├── analyzer.py         # 内容分析器（关键帧筛选 + 时间戳对齐）
