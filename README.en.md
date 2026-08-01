@@ -2,98 +2,132 @@
 
 [中文](README.md) | English
 
-An AI agent that converts programming tutorial videos (Bilibili / YouTube) into structured, step-by-step text-and-image documents — so you can learn at your own pace and ask AI questions when you get stuck.
+An AI agent that converts programming tutorial videos into structured Markdown tutorials — so you can learn at your own pace and ask AI questions when you get stuck.
 
 ## What It Does
 
-1. **Downloads** a video from Bilibili or YouTube via URL
-2. **Analyzes** the video structure autonomously (intro, setup, core code, testing, summary)
-3. **Extracts** key frames at meaningful moments (code changes, errors, test results)
-4. **Generates** a Markdown tutorial with screenshots and step-by-step explanations
-5. **Answers questions** about the video content interactively
+1. **Transcribes**: Extracts audio and transcribes via SiliconFlow SenseVoice
+2. **Extracts frames**: FFmpeg scene detection + fallback timing, deduplicated with perceptual hashing
+3. **Generates**: Keyframes + subtitles → structured Markdown tutorial via GPT / Claude
+4. **Q&A**: Ask questions about the video content at any time
 
-## Example
+## Output Format
 
-```bash
-# Process online video (natural language)
-framelearn "Convert this video to a tutorial https://www.youtube.com/watch?v=example"
-
-# Process local video (natural language)
-framelearn "Process this local video /Users/iwill/Downloads/tutorial.mp4"
-
-# Traditional command format (backward compatible)
-framelearn run "https://www.youtube.com/watch?v=example"
-framelearn run "/path/to/video.mp4"
+```
+output/video-name/
+  index.md          # Tutorial (chapters, key points, code examples, frame references)
+  src/
+    frame_001.jpg   # Keyframe screenshots
+    frame_002.jpg
+    ...
+    subtitle.txt    # Cleaned subtitle text
 ```
 
-Output: `output/tutorial.md` — a complete image-and-text tutorial with code blocks, screenshots, and section headings.
+## Quickstart
+
+### 1. Install dependencies
+
+```bash
+# Install FFmpeg (required)
+brew install ffmpeg          # macOS
+# apt install ffmpeg         # Ubuntu
+
+# Install Python dependencies
+uv sync
+```
+
+### 2. Configure
+
+Copy `.env.example` to `.env` and fill in your API keys:
+
+```bash
+cp .env.example .env
+```
+
+Minimum required:
+
+```bash
+# Text / vision model (via Codex app-server, no extra key needed)
+# Or configure a direct API key
+TEXT_PROVIDER=deepseek
+TEXT_API_KEY=your_deepseek_key_here
+
+# ASR speech-to-text (SiliconFlow, accessible from mainland China)
+SILICONFLOW_API_KEY=your_siliconflow_key_here
+```
+
+Runtime mode and video parameters are configured in `settings.toml`:
+
+```toml
+[runtime]
+text_mode = "appserver"   # appserver (via Codex) or api (direct call)
+vision_mode = "appserver"
+
+[video]
+output_dir = "./output"
+scene_threshold = 0.3     # Scene change sensitivity
+max_keyframes = 100
+```
+
+### 3. Run
+
+```bash
+# Natural language (recommended)
+framelearn "Process this video /path/to/tutorial.mp4"
+framelearn "What does chapter 3 cover?"
+
+# Traditional command format
+framelearn run /path/to/tutorial.mp4
+framelearn ask "Why use a virtual environment?"
+framelearn summarize
+framelearn help
+```
+
+## Bilibili Videos
+
+Bilibili downloads often split video and audio into separate files:
+
+```
+tutorial-30080.mp4   # Video stream (no audio)
+tutorial-30280.mp3   # Audio stream
+```
+
+FrameLearn automatically detects and pairs companion audio files in the same directory — no manual merging needed.
 
 ## Architecture
 
 ```
-FrameLearn
-├── Planner Agent       # Analyzes video structure, creates a conversion plan
-├── Tool Executor       # Calls yt-dlp, ffmpeg, OCR as needed
-├── Content Analyzer    # Detects key frames, identifies code, segments chapters
-├── Document Generator  # Produces structured Markdown output
-└── QA Module           # Answers user questions based on video content
+User input
+  ↓
+CommandParser (natural language intent recognition)
+  ↓
+CommandRouter (command dispatch)
+  ↓
+VideoPipeline
+  ├── FFmpegHelper      Audio extraction + keyframe extraction
+  ├── ASRAdapter        Speech-to-text (SiliconFlow SenseVoice)
+  ├── SubtitleCleaner   Subtitle cleaning (ported from Bilitato)
+  ├── KeyframeDedup     Perceptual hash deduplication
+  └── DocumentGenerator Markdown tutorial generation
 ```
 
 ## Tech Stack
 
-- **HelloAgents** — lightweight agent framework providing ReAct loop and tool registry
-- **LLM Provider (configurable)** — Gemini 2.0 Flash recommended for vision tasks, DeepSeek for text; Claude, OpenRouter, and custom endpoints also supported
-- **yt-dlp** — video downloading (YouTube & Bilibili); also used to download YouTube subtitles
-- **Bilibili API** — fetches official subtitles first; skips Whisper when subtitles are available
-- **ffmpeg** — frame extraction and video processing
-- **Whisper** (OpenAI) — local speech-to-text with timestamped transcripts when no subtitles available; Groq API also supported
-- **Tesseract / pytesseract** — OCR for code recognition in frames
-- **Chroma** — vector database for RAG-based QA retrieval
-- **Python 3.11+**
-
-## Quickstart
-
-```bash
-# 1. Clone the repo
-git clone https://github.com/tjhuang6/framelearn.git
-cd framelearn
-
-# 2. Install dependencies
-uv sync
-
-# 3. Set your API key
-export ANTHROPIC_API_KEY=your_key_here
-
-# 4. Run on a video
-python -m framelearn run "https://www.youtube.com/watch?v=example"
-```
-
-## Output Format
-
-Each generated tutorial includes:
-
-- Chapter headings matching the video structure
-- Key frame screenshots at critical moments
-- Code blocks extracted from the video
-- Step-by-step explanations for each segment
-- Timestamps linking back to the source video
-
-## Interactive QA
-
-After the tutorial is generated, you can ask questions about it:
-
-```bash
-python -m framelearn ask "Why does the author use a virtual environment in step 3?"
-```
-
-The agent references the original video content and generated notes to answer accurately.
+| Purpose | Tool |
+|---------|------|
+| Audio/video processing | FFmpeg |
+| Speech recognition | SiliconFlow FunAudioLLM/SenseVoiceSmall |
+| Vision / text analysis | Codex app-server (GPT-5.6) or direct API |
+| Keyframe deduplication | imagehash (perceptual hashing) |
+| Configuration | settings.toml + .env |
+| Runtime | Python 3.11+, uv |
 
 ## Docs
 
-- [Technical Architecture](docs/architecture.en.md)
-- [Module Interface Design](docs/modules/)
-- [Hello-Agents Study Notes](docs/hello-agents/)
-- [Technical Decisions](docs/decisions/)
+- [Technical Architecture](docs/architecture.md)
+- [Video Pipeline Design](openspec/changes/video-pipeline/design.md)
+- [Bilitato Migration Decisions](docs/decisions/bilitato-to-framelearn.md)
+- [App-Server Multimodal Pipeline](docs/app-server-video-multimodal-pipeline.md)
 
 ## License
 
