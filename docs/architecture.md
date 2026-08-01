@@ -286,6 +286,8 @@ framelearn/
     └── frames/             # 关键帧截图
 ```
 
+<!-- probe hook -->
+
 ## 参考资料
 
 - [Hello-Agents 课程](https://github.com/datawhalechina/Hello-Agents) — Agent 框架基础
