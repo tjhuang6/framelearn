@@ -235,9 +235,23 @@ $ framelearn "帮我处理一下这个 B站视频 https://bilibili.com/video/BV1
 
 [CommandParser] 解析意图...
 [CommandParser] → run https://bilibili.com/video/BV1xx...
-[CommandRouter] 启动视频处理流水线
+[CommandRouter] 启动视频处理流水线（在线视频）
 🔄 正在下载视频...
 ✅ 已获取官方字幕，跳过 Whisper 转写
+🔄 规划 Agent 分析视频结构...
+```
+
+### 示例 1b：自然语言处理本地视频
+
+```bash
+$ framelearn "处理这个本地视频 /Users/iwill/Downloads/tutorial.mp4"
+
+[CommandParser] 解析意图...
+[CommandParser] → run /Users/iwill/Downloads/tutorial.mp4
+[CommandRouter] 启动视频处理流水线（本地文件）
+✅ 跳过下载，使用本地文件
+🔄 检查同目录字幕文件...
+⚠️  未找到字幕，使用 Whisper 转写音频
 🔄 规划 Agent 分析视频结构...
 ```
 
