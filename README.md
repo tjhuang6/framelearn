@@ -33,11 +33,12 @@ FrameLearn
 
 ## 技术栈
 
-- **Claude API**（Anthropic）— Agent 调度、视频内容分析、问答
 - **HelloAgents** — 轻量级 Agent 框架，提供 ReAct 循环、工具注册机制
-- **yt-dlp** — 视频下载，支持 YouTube 和 Bilibili
+- **LLM Provider（可配置）** — 视觉任务推荐 Gemini 2.0 Flash，文字任务推荐 DeepSeek；也支持 Claude、OpenRouter、自定义接口
+- **yt-dlp** — 视频下载，支持 YouTube 和 Bilibili；同时用于下载 YouTube 字幕
+- **Bilibili API** — 优先获取 B站官方字幕，有字幕时跳过 Whisper 转写
 - **ffmpeg** — 帧提取与视频处理
-- **Whisper**（OpenAI）— 本地语音转文字，输出带时间戳的文字稿
+- **Whisper**（OpenAI）— 无字幕时本地语音转文字，输出带时间戳的文字稿；也可配置为 Groq API
 - **Tesseract / pytesseract** — OCR，识别帧中的代码文字
 - **Chroma** — 向量数据库，支持问答模块的 RAG 检索
 - **Python 3.11+**
