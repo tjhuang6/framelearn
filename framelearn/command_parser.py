@@ -1,6 +1,10 @@
 """Natural language command parser for FrameLearn."""
 
-from framelearn.provider_adapter import call_text_llm
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 SYSTEM_PROMPT = """
@@ -74,9 +78,6 @@ class CommandParser:
         """
         Parse user input into a standard command.
 
-        Args:
-            user_input: Raw user input (natural language or traditional command)
-
         Returns:
             Standard command string (e.g., "run https://..." or "ask <question>")
 
@@ -94,11 +95,54 @@ class CommandParser:
         return command
 
     def _is_traditional_command(self, text: str) -> bool:
-        """Check if input is already a traditional command format."""
         first_word = text.strip().split()[0] if text.strip() else ""
         return first_word in ["run", "ask", "summarize", "help"]
 
     def _parse_with_llm(self, text: str) -> str:
-        """Parse natural language input using configured text LLM provider."""
+        """Parse natural language using available LLM backend.
+
+        Priority:
+          1. TEXT_PROVIDER + TEXT_API_KEY in .env  → use provider_adapter
+          2. codex app-server available             → use codex as parser
+          3. Neither available                      → treat input as ask passthrough
+        """
+        provider = os.getenv("TEXT_PROVIDER", "").strip()
+        api_key = os.getenv("TEXT_API_KEY", "").strip()
+
+        if provider and api_key:
+            return self._parse_via_provider(text)
+
+        return self._parse_via_codex(text)
+
+    def _parse_via_provider(self, text: str) -> str:
+        from framelearn.provider_adapter import call_text_llm
         prompt = f"{SYSTEM_PROMPT}\n\n输入：{text}\n输出："
         return call_text_llm(prompt, max_tokens=100).strip()
+
+    def _parse_via_codex(self, text: str) -> str:
+        """Use codex app-server as the intent parser.
+
+        Sends a tightly-scoped prompt and expects a single-line command back.
+        Falls back to passthrough (treat input as ask) if codex is unavailable.
+        """
+        import shutil
+        if not shutil.which("codex"):
+            # No LLM available at all — pass through as ask
+            return f"ask {text}"
+
+        try:
+            from framelearn.app_server.session import AppServerSession
+            session = AppServerSession(workspace=os.getcwd())
+            prompt = f"{SYSTEM_PROMPT}\n\n输入：{text}\n输出："
+            result = session.run_turn(prompt)
+            session.close()
+
+            raw = (result.final_text or "").strip()
+            # Take only the first line — the parser should return exactly one command
+            first_line = raw.splitlines()[0].strip() if raw else ""
+            if first_line:
+                return first_line
+            # No output from codex — pass through as ask
+            return f"ask {text}"
+        except Exception:
+            return f"ask {text}"
