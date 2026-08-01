@@ -33,11 +33,13 @@ FrameLearn
 
 ## 技术栈
 
-- **Claude API**（Anthropic）— Agent 调度、内容分析、问答
+- **Claude API**（Anthropic）— Agent 调度、视频内容分析、问答
+- **HelloAgents** — 轻量级 Agent 框架，提供 ReAct 循环、工具注册机制
 - **yt-dlp** — 视频下载，支持 YouTube 和 Bilibili
 - **ffmpeg** — 帧提取与视频处理
+- **Whisper**（OpenAI）— 本地语音转文字，输出带时间戳的文字稿
 - **Tesseract / pytesseract** — OCR，识别帧中的代码文字
-- **LangChain** — 工具调用框架与 Agent 循环
+- **Chroma** — 向量数据库，支持问答模块的 RAG 检索
 - **Python 3.11+**
 
 ## 快速上手
