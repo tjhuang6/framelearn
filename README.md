@@ -2,98 +2,132 @@
 
 [English](README.en.md) | 中文
 
-一个 AI Agent，将 Bilibili / YouTube 编程教学视频自动转换为图文教程——让你按自己的节奏学习，遇到不懂的地方随时向 AI 提问。
+一个 AI Agent，将编程教学视频自动转换为结构化图文教材——让你按自己的节奏学习，遇到不懂的地方随时向 AI 提问。
 
 ## 它能做什么
 
-1. **下载**：通过 URL 下载 Bilibili 或 YouTube 视频
-2. **分析**：自主分析视频结构（简介、环境配置、核心代码、测试、总结）
-3. **提取**：在关键时刻截取帧（代码变化、报错、测试结果）
-4. **生成**：输出带截图和逐步说明的 Markdown 教程
-5. **问答**：生成教程后，可以针对视频内容进行交互式提问
+1. **转录**：提取视频音轨，通过硅基流动 SenseVoice 转录为文字
+2. **抽帧**：FFmpeg 场景检测 + 定时保底抽帧，感知哈希去重
+3. **生成**：关键帧 + 字幕送给 GPT / Claude，输出结构化 Markdown 教材
+4. **问答**：生成教材后，随时针对视频内容向 AI 提问
 
-## 使用示例
+## 输出格式
 
-```bash
-# 处理在线视频（自然语言）
-framelearn "帮我把这个视频转成文档 https://www.bilibili.com/video/BV1xx411c7mD"
-
-# 处理本地视频（自然语言）
-framelearn "处理这个本地视频 /Users/iwill/Downloads/tutorial.mp4"
-
-# 传统命令格式（向后兼容）
-framelearn run "https://www.youtube.com/watch?v=example"
-framelearn run "/path/to/video.mp4"
+```
+output/视频名称/
+  index.md          # 主教材（章节结构、要点、代码示例、关键帧引用）
+  src/
+    frame_001.jpg   # 关键帧截图
+    frame_002.jpg
+    ...
+    subtitle.txt    # 清洗后的字幕文本
 ```
 
-输出：`output/tutorial.md` — 一份完整的图文教程，包含代码块、截图和章节标题。
+## 快速上手
+
+### 1. 安装依赖
+
+```bash
+# 安装 FFmpeg（必需）
+brew install ffmpeg          # macOS
+# apt install ffmpeg         # Ubuntu
+
+# 安装 Python 依赖
+uv sync
+```
+
+### 2. 配置
+
+复制 `.env.example` 为 `.env`，填入 API Key：
+
+```bash
+cp .env.example .env
+```
+
+最少需要配置两项：
+
+```bash
+# 文字/视觉模型（通过 Codex app-server，无需额外 key）
+# 或直接配置 API key
+TEXT_PROVIDER=deepseek
+TEXT_API_KEY=your_deepseek_key_here
+
+# ASR 语音识别（硅基流动，国内可直接访问）
+SILICONFLOW_API_KEY=your_siliconflow_key_here
+```
+
+运行模式和视频参数在 `settings.toml` 中配置：
+
+```toml
+[runtime]
+text_mode = "appserver"   # appserver（通过 Codex）或 api（直接调用）
+vision_mode = "appserver"
+
+[video]
+output_dir = "./output"
+scene_threshold = 0.3     # 场景切换灵敏度
+max_keyframes = 100
+```
+
+### 3. 运行
+
+```bash
+# 自然语言（推荐）
+framelearn "处理这个视频 /path/to/tutorial.mp4"
+framelearn "第 3 章讲了什么"
+
+# 传统命令格式
+framelearn run /path/to/tutorial.mp4
+framelearn ask "为什么要用虚拟环境"
+framelearn summarize
+framelearn help
+```
+
+## B 站视频说明
+
+B 站下载的视频通常是音视频分离的两个文件：
+
+```
+tutorial-30080.mp4   # 视频流（无音轨）
+tutorial-30280.mp3   # 音频流
+```
+
+FrameLearn 会自动检测并配对同目录下的伴随音频文件，无需手动合并。
 
 ## 架构
 
 ```
-FrameLearn
-├── 规划 Agent          # 分析视频结构，制定转换计划
-├── 工具执行器          # 调用 yt-dlp、ffmpeg、OCR 等工具
-├── 内容分析器          # 识别关键帧，提取代码，切分章节
-├── 文档生成器          # 输出结构化 Markdown 教程
-└── 问答模块            # 基于视频内容回答用户提问
+用户输入
+  ↓
+CommandParser（自然语言意图识别）
+  ↓
+CommandRouter（命令分发）
+  ↓
+VideoPipeline
+  ├── FFmpegHelper     音轨提取 + 关键帧抽取
+  ├── ASRAdapter       语音转文字（硅基流动 SenseVoice）
+  ├── SubtitleCleaner  字幕清洗（移植自 Bilitato）
+  ├── KeyframeDedup    感知哈希去重
+  └── DocumentGenerator  生成 Markdown 教材
 ```
 
 ## 技术栈
 
-- **HelloAgents** — 轻量级 Agent 框架，提供 ReAct 循环、工具注册机制
-- **LLM Provider（可配置）** — 视觉任务推荐 Gemini 2.0 Flash，文字任务推荐 DeepSeek；也支持 Claude、OpenRouter、自定义接口
-- **yt-dlp** — 视频下载，支持 YouTube 和 Bilibili；同时用于下载 YouTube 字幕
-- **Bilibili API** — 优先获取 B站官方字幕，有字幕时跳过 Whisper 转写
-- **ffmpeg** — 帧提取与视频处理
-- **Whisper**（OpenAI）— 无字幕时本地语音转文字，输出带时间戳的文字稿；也可配置为 Groq API
-- **Tesseract / pytesseract** — OCR，识别帧中的代码文字
-- **Chroma** — 向量数据库，支持问答模块的 RAG 检索
-- **Python 3.11+**
-
-## 快速上手
-
-```bash
-# 1. 克隆仓库
-git clone https://github.com/tjhuang6/framelearn.git
-cd framelearn
-
-# 2. 安装依赖
-uv sync
-
-# 3. 配置 API Key
-export ANTHROPIC_API_KEY=your_key_here
-
-# 4. 运行
-python -m framelearn run "https://www.youtube.com/watch?v=example"
-```
-
-## 输出格式
-
-生成的教程包含：
-
-- 与视频结构对应的章节标题
-- 关键时刻的截图
-- 从视频中提取的代码块
-- 每个片段的逐步说明
-- 指向源视频对应时间点的时间戳链接
-
-## 交互式问答
-
-教程生成后，可以直接提问：
-
-```bash
-python -m framelearn ask "第 3 步为什么要用虚拟环境？"
-```
-
-Agent 会结合原始视频内容和生成的笔记给出准确的回答。
+| 用途 | 工具 |
+|------|------|
+| 音视频处理 | FFmpeg |
+| 语音识别 | 硅基流动 FunAudioLLM/SenseVoiceSmall |
+| 视觉 / 文字分析 | Codex app-server（GPT-5.6）或直接 API |
+| 关键帧去重 | imagehash（感知哈希） |
+| 配置管理 | settings.toml + .env |
+| 运行时 | Python 3.11+，uv |
 
 ## 文档
 
 - [技术架构](docs/architecture.md)
-- [模块接口设计](docs/modules/)
-- [Hello-Agents 学习笔记](docs/hello-agents/)
-- [技术决策记录](docs/decisions/)
+- [视频流水线设计](openspec/changes/video-pipeline/design.md)
+- [Bilitato 迁移决策](docs/decisions/bilitato-to-framelearn.md)
+- [App-Server 多模态流水线](docs/app-server-video-multimodal-pipeline.md)
 
 ## 开源协议
 
