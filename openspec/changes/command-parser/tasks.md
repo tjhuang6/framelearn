@@ -55,20 +55,26 @@
 - [ ] 实现 `CommandRouter` 类：
   - [ ] `__init__(self)`（pipeline 和 qa_module 延迟初始化）
   - [ ] `execute(self, command: str)`（命令分发）
-  - [ ] `_run_pipeline(self, url: str)`
+  - [ ] `_run_pipeline(self, source: str)`（区分 URL 和本地文件）
   - [ ] `_ask_question(self, question: str)`
   - [ ] `_summarize_learning(self)`
   - [ ] `_show_help(self)`
   - [ ] `_is_valid_video_url(self, url: str) -> bool`
+  - [ ] `_is_video_file(self, path: str) -> bool`
 - [ ] 定义 `HELP_TEXT` 常量（使用说明）
 
 **临时实现**（主流程未完成前）：
-- `_run_pipeline`：打印 "TODO: 视频处理流水线未实现"
+- `_run_pipeline`：
+  - URL：打印 "TODO: 在线视频处理流水线未实现"
+  - 本地文件：打印 "TODO: 本地文件处理流水线未实现"
 - `_ask_question`：打印 "TODO: 问答模块未实现"
 - `_summarize_learning`：打印提示 "请运行：/summarize-learning"
 
 **验收标准**：
 - 命令分发正确
+- URL / 本地路径正确识别和验证
+- 文件存在性检查
+- 视频格式验证（.mp4 / .mkv 等）
 - 参数验证（URL 格式、问题非空）
 - 未知命令抛出异常
 
