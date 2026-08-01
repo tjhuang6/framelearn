@@ -79,7 +79,10 @@ Agent 会结合原始视频内容和生成的笔记给出准确的回答。
 
 ## 文档
 
-- [技术架构](docs/architecture.zh.md)
+- [技术架构](docs/architecture.md)
+- [模块接口设计](docs/modules/)
+- [Hello-Agents 学习笔记](docs/hello-agents/)
+- [技术决策记录](docs/decisions/)
 
 ## 开源协议
 
