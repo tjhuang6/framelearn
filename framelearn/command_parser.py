@@ -102,14 +102,20 @@ class CommandParser:
         """Parse natural language using available LLM backend.
 
         Priority:
-          1. TEXT_PROVIDER + TEXT_API_KEY in .env  → use provider_adapter
-          2. codex app-server available             → use codex as parser
-          3. Neither available                      → treat input as ask passthrough
+          1. TEXT_PROVIDER + valid TEXT_API_KEY in .env  → use provider_adapter
+          2. codex app-server available                  → use codex as parser
+          3. Neither available                           → treat input as ask passthrough
         """
         provider = os.getenv("TEXT_PROVIDER", "").strip()
         api_key = os.getenv("TEXT_API_KEY", "").strip()
+        key_looks_real = (
+            bool(api_key)
+            and not api_key.startswith("your_")
+            and api_key != "sk-xxx"
+            and len(api_key) > 10
+        )
 
-        if provider and api_key:
+        if provider and key_looks_real:
             return self._parse_via_provider(text)
 
         return self._parse_via_codex(text)
