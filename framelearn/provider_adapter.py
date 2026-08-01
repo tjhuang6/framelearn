@@ -35,7 +35,7 @@ PROVIDERS: dict[str, dict] = {
     "deepseek": {
         "name": "DeepSeek",
         "base_url": "https://api.deepseek.com/v1/",
-        "default_model": "deepseek-chat",
+        "default_model": "deepseek-v4-flash",   # v4-flash: 便宜快速；v4-pro: 最强；r1-0528: 深度推理
         "type": "openai",
         "reg_url": "https://platform.deepseek.com/api_keys",
     },
