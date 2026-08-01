@@ -82,13 +82,27 @@ class CommandRouter:
         if source.startswith("http"):
             if not self._is_valid_video_url(source):
                 raise ValueError("无效的视频链接，仅支持 YouTube 和 Bilibili")
-            print(f"TODO: 在线视频处理流水线未实现 - {source}")
+            print("❌ 在线视频下载功能尚未实现")
+            print("提示：请先手动下载视频，然后使用本地文件路径")
+            return
         else:
             if not os.path.isfile(source):
                 raise ValueError(f"文件不存在：{source}")
             if not self._is_video_file(source):
                 raise ValueError("不支持的文件格式，仅支持常见视频格式")
-            print(f"TODO: 本地文件处理流水线未实现 - {source}")
+
+            # Process local video file
+            from framelearn.pipeline import VideoPipeline
+
+            pipeline = VideoPipeline(source)
+            result = pipeline.run()
+
+            if result.error:
+                print(f"❌ {result.error}")
+            else:
+                print(f"\n📂 输出目录：{result.output_dir}")
+                print(f"📄 教材文件：{result.markdown_path}")
+                print(f"🖼️  关键帧数：{len(result.keyframes)}")
 
     def _ask_question(self, question: str):
         if not question:
