@@ -1,0 +1,163 @@
+"""Command router for dispatching parsed commands to appropriate modules."""
+
+import os
+
+
+HELP_TEXT = """
+FrameLearn - AI Agent for converting programming tutorial videos to text tutorials
+
+用法：
+  framelearn <命令或自然语言描述>
+
+命令格式：
+  run <URL或路径>      处理视频并生成教材
+  ask <问题>           询问教材内容
+  summarize           总结学习过程
+  help                显示此帮助信息
+
+示例：
+  # 自然语言（推荐）
+  framelearn "帮我处理这个视频 https://bilibili.com/video/BV1xx..."
+  framelearn "处理本地视频 /path/to/video.mp4"
+  framelearn "第 3 章讲了什么"
+  framelearn "总结一下我学到的"
+
+  # 传统命令格式
+  framelearn run "https://youtube.com/watch?v=xxx"
+  framelearn run "/path/to/video.mp4"
+  framelearn ask "为什么要用虚拟环境"
+  framelearn summarize
+
+支持的视频格式：.mp4, .mkv, .avi, .mov, .flv, .wmv, .webm
+支持的视频来源：YouTube, Bilibili, 本地文件
+"""
+
+
+class CommandRouter:
+    """Route parsed commands to appropriate FrameLearn modules."""
+
+    def __init__(self):
+        """Initialize router with lazy-loaded modules."""
+        self.pipeline = None
+        self.qa_module = None
+
+    def execute(self, command: str):
+        """
+        Execute a parsed command.
+
+        Args:
+            command: Standard command string (e.g., "run <source>", "ask <question>")
+
+        Raises:
+            ValueError: If command format is invalid or parameters are missing
+        """
+        parts = command.split(maxsplit=1)
+        cmd = parts[0]
+        args = parts[1] if len(parts) > 1 else ""
+
+        if cmd == "run":
+            self._run_pipeline(args)
+        elif cmd == "ask":
+            self._ask_question(args)
+        elif cmd == "summarize":
+            self._summarize_learning()
+        elif cmd == "help":
+            self._show_help()
+        else:
+            raise ValueError(f"未知命令：{cmd}")
+
+    def _run_pipeline(self, source: str):
+        """
+        Process video (URL or local file).
+
+        Args:
+            source: Video URL (YouTube/Bilibili) or local file path
+
+        Raises:
+            ValueError: If source is invalid or file doesn't exist
+        """
+        if not source:
+            raise ValueError("缺少视频 URL 或文件路径")
+
+        # Distinguish between online video and local file
+        if source.startswith("http"):
+            # Online video - validate URL
+            if not self._is_valid_video_url(source):
+                raise ValueError("无效的视频链接，仅支持 YouTube 和 Bilibili")
+            pipeline_type = "url"
+        else:
+            # Local file - validate existence and format
+            if not os.path.isfile(source):
+                raise ValueError(f"文件不存在：{source}")
+            if not self._is_video_file(source):
+                raise ValueError(f"不支持的文件格式，仅支持常见视频格式")
+            pipeline_type = "file"
+
+        # TODO: Initialize pipeline (lazy loading)
+        # if self.pipeline is None:
+        #     from framelearn.pipeline import VideoPipeline
+        #     self.pipeline = VideoPipeline()
+
+        # Execute video processing pipeline
+        if pipeline_type == "url":
+            print(f"TODO: 在线视频处理流水线未实现 - {source}")
+            # self.pipeline.run_from_url(source)
+        else:
+            print(f"TODO: 本地文件处理流水线未实现 - {source}")
+            # self.pipeline.run_from_file(source)
+
+    def _ask_question(self, question: str):
+        """
+        Ask a question about the generated tutorial.
+
+        Args:
+            question: User's question
+
+        Raises:
+            ValueError: If question is empty
+        """
+        if not question:
+            raise ValueError("缺少问题内容")
+
+        # TODO: Initialize QA module (lazy loading)
+        # if self.qa_module is None:
+        #     from framelearn.qa import QAModule
+        #     self.qa_module = QAModule()
+
+        print(f"TODO: 问答模块未实现 - {question}")
+        # answer = self.qa_module.ask(question)
+        # print(answer)
+
+    def _summarize_learning(self):
+        """Trigger learning summary (delegates to /summarize-learning skill)."""
+        print("📝 请运行：/summarize-learning")
+        print("提示：这是一个 Claude Code skill，需在 Claude Code 环境中使用")
+
+    def _show_help(self):
+        """Display help information."""
+        print(HELP_TEXT)
+
+    def _is_valid_video_url(self, url: str) -> bool:
+        """
+        Check if URL is a valid video platform URL.
+
+        Args:
+            url: URL string
+
+        Returns:
+            True if URL is from YouTube or Bilibili
+        """
+        return ("youtube.com" in url or "youtu.be" in url or "bilibili.com" in url)
+
+    def _is_video_file(self, path: str) -> bool:
+        """
+        Check if file extension is a supported video format.
+
+        Args:
+            path: File path
+
+        Returns:
+            True if extension is a known video format
+        """
+        video_exts = ['.mp4', '.mkv', '.avi', '.mov', '.flv', '.wmv', '.webm']
+        return any(path.lower().endswith(ext) for ext in video_exts)
