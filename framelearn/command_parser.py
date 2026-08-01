@@ -1,6 +1,6 @@
 """Natural language command parser for FrameLearn."""
 
-from anthropic import Anthropic
+from framelearn.provider_adapter import call_text_llm
 
 
 SYSTEM_PROMPT = """
@@ -60,16 +60,6 @@ SYSTEM_PROMPT = """
 class CommandParser:
     """Parse natural language input into standard FrameLearn commands."""
 
-    def __init__(self, api_key: str):
-        """
-        Initialize the command parser.
-
-        Args:
-            api_key: Anthropic API key for LLM calls
-        """
-        self.client = Anthropic(api_key=api_key)
-        self.system_prompt = SYSTEM_PROMPT
-
     def parse(self, user_input: str) -> str:
         """
         Parse user input into a standard command.
@@ -83,48 +73,22 @@ class CommandParser:
         Raises:
             ValueError: If parsing fails or input is invalid
         """
-        # Fast path: traditional command format
         if self._is_traditional_command(user_input):
             return user_input
 
-        # Natural language: call LLM to parse intent
         command = self._parse_with_llm(user_input)
 
-        # Handle error format
         if command.startswith("error:"):
             raise ValueError(command[6:].strip())
 
         return command
 
     def _is_traditional_command(self, text: str) -> bool:
-        """
-        Check if input is a traditional command format.
-
-        Args:
-            text: User input
-
-        Returns:
-            True if starts with a known command keyword
-        """
+        """Check if input is already a traditional command format."""
         first_word = text.strip().split()[0] if text.strip() else ""
         return first_word in ["run", "ask", "summarize", "help"]
 
     def _parse_with_llm(self, text: str) -> str:
-        """
-        Parse natural language input using LLM.
-
-        Args:
-            text: Natural language input
-
-        Returns:
-            Standard command string
-        """
-        prompt = f"{self.system_prompt}\n\n输入：{text}\n输出："
-
-        response = self.client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=100,
-            messages=[{"role": "user", "content": prompt}]
-        )
-
-        return response.content[0].text.strip()
+        """Parse natural language input using configured text LLM provider."""
+        prompt = f"{SYSTEM_PROMPT}\n\n输入：{text}\n输出："
+        return call_text_llm(prompt, max_tokens=100).strip()
