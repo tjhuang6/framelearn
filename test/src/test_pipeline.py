@@ -106,17 +106,21 @@ class TestFFmpegHelper:
 # ------------------------------------------------------------------
 
 class TestASRAdapter:
-    def test_init_without_key_raises(self):
+    def test_init_without_key_raises(self, tmp_path):
+        audio = tmp_path / "test.m4a"
+        audio.write_bytes(b"\x00")
         with patch.dict('os.environ', {'SILICONFLOW_API_KEY': ''}):
             with pytest.raises(ValueError, match="SILICONFLOW_API_KEY"):
                 adapter = ASRAdapter(provider="siliconflow")
-                adapter.transcribe("fake.m4a")
+                adapter.transcribe(str(audio))
 
-    def test_init_with_placeholder_key_raises(self):
+    def test_init_with_placeholder_key_raises(self, tmp_path):
+        audio = tmp_path / "test.m4a"
+        audio.write_bytes(b"\x00")
         with patch.dict('os.environ', {'SILICONFLOW_API_KEY': 'your_key_here'}):
             with pytest.raises(ValueError, match="SILICONFLOW_API_KEY"):
                 adapter = ASRAdapter(provider="siliconflow")
-                adapter.transcribe("fake.m4a")
+                adapter.transcribe(str(audio))
 
     def test_transcribe_success(self, tmp_path):
         audio = tmp_path / "test.m4a"
