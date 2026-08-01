@@ -126,29 +126,58 @@ class CommandParser:
         return call_text_llm(prompt, max_tokens=100).strip()
 
     def _parse_via_codex(self, text: str) -> str:
-        """Use codex app-server as the intent parser.
+        """Rule-based intent parser — no LLM needed.
 
-        Sends a tightly-scoped prompt and expects a single-line command back.
-        Falls back to passthrough (treat input as ask) if codex is unavailable.
+        When no external API key is configured, we use simple rules:
+        - Input contains a video URL or video file path → run
+        - Input contains "总结" / "summarize" → summarize
+        - Everything else → ask (Codex handles it)
+
+        This is intentionally simple. The heavy lifting is done by Codex
+        during the ask turn, not during intent classification.
         """
-        import shutil
-        if not shutil.which("codex"):
-            # No LLM available at all — pass through as ask
-            return f"ask {text}"
+        lower = text.lower().strip()
 
-        try:
-            from framelearn.app_server.session import AppServerSession
-            session = AppServerSession(workspace=os.getcwd())
-            prompt = f"{SYSTEM_PROMPT}\n\n输入：{text}\n输出："
-            result = session.run_turn(prompt)
-            session.close()
+        # summarize intent
+        if any(kw in lower for kw in ("总结", "summarize", "笔记")):
+            # Make sure it's not asking about summarizing a video
+            if not self._contains_video_source(text):
+                return "summarize"
 
-            raw = (result.final_text or "").strip()
-            # Take only the first line — the parser should return exactly one command
-            first_line = raw.splitlines()[0].strip() if raw else ""
-            if first_line:
-                return first_line
-            # No output from codex — pass through as ask
-            return f"ask {text}"
-        except Exception:
-            return f"ask {text}"
+        # video processing intent
+        if self._contains_video_source(text):
+            source = self._extract_video_source(text)
+            if source:
+                return f"run {source}"
+            return "error: 缺少视频链接或文件路径"
+
+        # explicit video intent but no source
+        video_intent_keywords = ("视频", "video", "youtube", "bilibili", "b站", "教程", "转成文档", "生成教材")
+        if any(kw in lower for kw in video_intent_keywords):
+            return "error: 缺少视频链接或文件路径"
+
+        # Everything else → ask Codex
+        return f"ask {text}"
+
+    @staticmethod
+    def _contains_video_source(text: str) -> bool:
+        import re
+        # URL
+        if re.search(r"https?://", text):
+            return True
+        # Local video file path
+        video_exts = (".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".webm")
+        return any(text.lower().endswith(ext) or f"{ext} " in text.lower() for ext in video_exts)
+
+    @staticmethod
+    def _extract_video_source(text: str) -> str:
+        import re
+        # Extract URL
+        m = re.search(r"https?://\S+", text)
+        if m:
+            return m.group(0)
+        # Extract local file path (starts with / or ~)
+        m = re.search(r"[/~]\S+\.(?:mp4|mkv|avi|mov|flv|wmv|webm)", text, re.IGNORECASE)
+        if m:
+            return m.group(0)
+        return ""
