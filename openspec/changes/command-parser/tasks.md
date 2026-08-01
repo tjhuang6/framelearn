@@ -135,10 +135,10 @@ DEEPSEEK_API_KEY=your_key_here
 
 - [ ] 测试错误处理
   ```python
-  def test_missing_url_error(mock_llm):
-      mock_llm.invoke.return_value = "error: 缺少视频链接"
+  def test_missing_source_error(mock_llm):
+      mock_llm.invoke.return_value = "error: 缺少视频链接或文件路径"
       parser = CommandParser(mock_llm)
-      with pytest.raises(ValueError, match="缺少视频链接"):
+      with pytest.raises(ValueError, match="缺少视频链接或文件路径"):
           parser.parse("处理这个视频")
   ```
 
@@ -146,6 +146,7 @@ DEEPSEEK_API_KEY=your_key_here
 
 - [ ] 测试命令分发逻辑
 - [ ] 测试 URL 验证
+- [ ] 测试本地文件验证（存在性、格式）
 - [ ] 测试参数缺失错误
 
 **运行测试**：
