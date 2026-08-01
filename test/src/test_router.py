@@ -91,7 +91,7 @@ class TestRunCommand:
         router, _ = make_router()
 
         # Mock VideoPipeline to avoid actual processing
-        with patch('framelearn.router.VideoPipeline') as mock_pipeline:
+        with patch('framelearn.pipeline.video_pipeline.VideoPipeline') as mock_pipeline:
             from framelearn.pipeline import PipelineResult
             mock_instance = MagicMock()
             mock_result = PipelineResult(
