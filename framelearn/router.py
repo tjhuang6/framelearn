@@ -1,6 +1,9 @@
 """Command router for dispatching parsed commands to appropriate modules."""
 
 import os
+from typing import Optional
+
+from framelearn.app_server.runtime import RuntimeAdapter
 
 
 HELP_TEXT = """
@@ -36,17 +39,13 @@ FrameLearn - AI Agent for converting programming tutorial videos to text tutoria
 class CommandRouter:
     """Route parsed commands to appropriate FrameLearn modules."""
 
-    def __init__(self):
-        """Initialize router with lazy-loaded modules."""
-        self.pipeline = None
-        self.qa_module = None
+    def __init__(self, workspace: Optional[str] = None):
+        self._workspace = workspace or os.getcwd()
+        self._runtime: Optional[RuntimeAdapter] = None
 
     def execute(self, command: str):
         """
         Execute a parsed command.
-
-        Args:
-            command: Standard command string (e.g., "run <source>", "ask <question>")
 
         Raises:
             ValueError: If command format is invalid or parameters are missing
@@ -66,98 +65,71 @@ class CommandRouter:
         else:
             raise ValueError(f"未知命令：{cmd}")
 
+    def close(self):
+        if self._runtime:
+            self._runtime.close()
+            self._runtime = None
+
+    # ------------------------------------------------------------------
+    # Command handlers
+    # ------------------------------------------------------------------
+
     def _run_pipeline(self, source: str):
-        """
-        Process video (URL or local file).
-
-        Args:
-            source: Video URL (YouTube/Bilibili) or local file path
-
-        Raises:
-            ValueError: If source is invalid or file doesn't exist
-        """
         if not source:
             raise ValueError("缺少视频 URL 或文件路径")
 
-        # Distinguish between online video and local file
         if source.startswith("http"):
-            # Online video - validate URL
             if not self._is_valid_video_url(source):
                 raise ValueError("无效的视频链接，仅支持 YouTube 和 Bilibili")
-            pipeline_type = "url"
+            print(f"TODO: 在线视频处理流水线未实现 - {source}")
         else:
-            # Local file - validate existence and format
             if not os.path.isfile(source):
                 raise ValueError(f"文件不存在：{source}")
             if not self._is_video_file(source):
-                raise ValueError(f"不支持的文件格式，仅支持常见视频格式")
-            pipeline_type = "file"
-
-        # TODO: Initialize pipeline (lazy loading)
-        # if self.pipeline is None:
-        #     from framelearn.pipeline import VideoPipeline
-        #     self.pipeline = VideoPipeline()
-
-        # Execute video processing pipeline
-        if pipeline_type == "url":
-            print(f"TODO: 在线视频处理流水线未实现 - {source}")
-            # self.pipeline.run_from_url(source)
-        else:
+                raise ValueError("不支持的文件格式，仅支持常见视频格式")
             print(f"TODO: 本地文件处理流水线未实现 - {source}")
-            # self.pipeline.run_from_file(source)
 
     def _ask_question(self, question: str):
-        """
-        Ask a question about the generated tutorial.
-
-        Args:
-            question: User's question
-
-        Raises:
-            ValueError: If question is empty
-        """
         if not question:
             raise ValueError("缺少问题内容")
 
-        # TODO: Initialize QA module (lazy loading)
-        # if self.qa_module is None:
-        #     from framelearn.qa import QAModule
-        #     self.qa_module = QAModule()
+        runtime = self._get_runtime()
 
-        print(f"TODO: 问答模块未实现 - {question}")
-        # answer = self.qa_module.ask(question)
-        # print(answer)
+        def _ui(event: dict):
+            method = event.get("method", "")
+            params = event.get("params") or {}
+            if method == "item/agentMessage/delta":
+                delta = params.get("delta", "")
+                print(delta, end="", flush=True)
+
+        result = runtime.run_turn(question)
+        print()  # newline after streaming output
+
+        if result.error:
+            print(f"❌ {result.error}")
+        elif result.final_text:
+            # final_text already streamed via ui_callback; nothing more to print
+            pass
 
     def _summarize_learning(self):
-        """Trigger learning summary (delegates to /summarize-learning skill)."""
-        print("📝 请运行：/summarize-learning")
+        print("请运行：/summarize-learning")
         print("提示：这是一个 Claude Code skill，需在 Claude Code 环境中使用")
 
     def _show_help(self):
-        """Display help information."""
         print(HELP_TEXT)
 
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _get_runtime(self) -> RuntimeAdapter:
+        if self._runtime is None:
+            self._runtime = RuntimeAdapter(workspace=self._workspace)
+        return self._runtime
+
     def _is_valid_video_url(self, url: str) -> bool:
-        """
-        Check if URL is a valid video platform URL.
-
-        Args:
-            url: URL string
-
-        Returns:
-            True if URL is from YouTube or Bilibili
-        """
-        return ("youtube.com" in url or "youtu.be" in url or "bilibili.com" in url)
+        return "youtube.com" in url or "youtu.be" in url or "bilibili.com" in url
 
     def _is_video_file(self, path: str) -> bool:
-        """
-        Check if file extension is a supported video format.
-
-        Args:
-            path: File path
-
-        Returns:
-            True if extension is a known video format
-        """
         video_exts = ['.mp4', '.mkv', '.avi', '.mov', '.flv', '.wmv', '.webm']
         return any(path.lower().endswith(ext) for ext in video_exts)
