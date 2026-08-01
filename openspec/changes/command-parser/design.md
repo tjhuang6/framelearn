@@ -106,13 +106,23 @@ class CommandRouter:
         else:
             raise ValueError(f"未知命令：{cmd}")
     
-    def _run_pipeline(self, url: str):
-        if not url:
-            raise ValueError("缺少视频 URL")
+    def _run_pipeline(self, source: str):
+        if not source:
+            raise ValueError("缺少视频 URL 或文件路径")
         
-        # 验证 URL 格式
-        if not self._is_valid_video_url(url):
-            raise ValueError("无效的视频链接，仅支持 YouTube 和 Bilibili")
+        # 区分在线视频和本地文件
+        if source.startswith("http"):
+            # 验证 URL 格式
+            if not self._is_valid_video_url(source):
+                raise ValueError("无效的视频链接，仅支持 YouTube 和 Bilibili")
+            pipeline_type = "url"
+        else:
+            # 验证本地文件
+            if not os.path.isfile(source):
+                raise ValueError(f"文件不存在：{source}")
+            if not self._is_video_file(source):
+                raise ValueError(f"不支持的文件格式，仅支持常见视频格式")
+            pipeline_type = "file"
         
         # 初始化 Pipeline（延迟加载）
         if self.pipeline is None:
@@ -120,7 +130,15 @@ class CommandRouter:
             self.pipeline = VideoPipeline()
         
         # 执行视频处理流水线
-        self.pipeline.run(url)
+        if pipeline_type == "url":
+            self.pipeline.run_from_url(source)
+        else:
+            self.pipeline.run_from_file(source)
+    
+    def _is_video_file(self, path: str) -> bool:
+        """检查文件扩展名是否是视频格式"""
+        video_exts = ['.mp4', '.mkv', '.avi', '.mov', '.flv', '.wmv', '.webm']
+        return any(path.lower().endswith(ext) for ext in video_exts)
     
     def _ask_question(self, question: str):
         if not question:
