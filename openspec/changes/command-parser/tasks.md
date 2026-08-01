@@ -32,7 +32,7 @@
 
 **文件**：`framelearn/command_parser.py`
 
-- [ ] 定义 `SYSTEM_PROMPT` 常量（从 `docs/modules/command_parser.md` 复制）
+- [ ] 定义 `SYSTEM_PROMPT` 常量（从 `docs/modules/command_parser.md` 复制，包含本地文件支持）
 - [ ] 实现 `CommandParser` 类：
   - [ ] `__init__(self, llm: HelloAgentsLLM)`
   - [ ] `parse(self, user_input: str) -> str`
@@ -43,7 +43,7 @@
 
 **验收标准**：
 - 传统命令（`run ...`）直接返回，不调用 LLM
-- 自然语言调用 LLM，返回标准命令
+- 自然语言（URL 或路径）调用 LLM，返回标准命令
 - `error:` 格式正确抛出异常
 
 ---
