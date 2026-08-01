@@ -17,7 +17,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["test/src"]
 python_files = ["test_*.py"]
 
 [tool.ruff]
