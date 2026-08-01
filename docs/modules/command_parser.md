@@ -108,14 +108,18 @@ SYSTEM_PROMPT = """
 
 输出规则：
 - 只输出命令，不要解释，不要添加任何额外文字
-- 如果用户意图是处理视频但没提供 URL，输出：error: 缺少视频链接
+- 如果用户意图是处理视频但没提供 URL 或路径，输出：error: 缺少视频链接或文件路径
+- 如果提供的本地路径不存在，输出：error: 文件不存在
 - 如果意图完全不明确，输出：error: 无法理解意图，请明确说明需求
-- 保留用户输入的原始 URL（不要修改或补全）
+- 保留用户输入的原始 URL 或路径（不要修改或补全）
 - 保留用户问题的原始措辞（不要改写）
 
 示例：
 输入：帮我把这个视频转成文档 https://bilibili.com/video/BV1xx...
 输出：run https://bilibili.com/video/BV1xx...
+
+输入：处理这个本地视频 /Users/iwill/Downloads/tutorial.mp4
+输出：run /Users/iwill/Downloads/tutorial.mp4
 
 输入：我想看看第 3 章为什么要用虚拟环境
 输出：ask 第 3 章为什么要用虚拟环境
