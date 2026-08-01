@@ -33,11 +33,13 @@ FrameLearn
 
 ## Tech Stack
 
-- **Claude API** (Anthropic) — agent orchestration, content analysis, QA
+- **Claude API** (Anthropic) — agent orchestration, video content analysis, QA
+- **HelloAgents** — lightweight agent framework providing ReAct loop and tool registry
 - **yt-dlp** — video downloading (YouTube & Bilibili)
 - **ffmpeg** — frame extraction and video processing
+- **Whisper** (OpenAI) — local speech-to-text with timestamped transcripts
 - **Tesseract / pytesseract** — OCR for code recognition in frames
-- **LangChain** — tool calling framework and agent loop
+- **Chroma** — vector database for RAG-based QA retrieval
 - **Python 3.11+**
 
 ## Quickstart
