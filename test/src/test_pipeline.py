@@ -138,7 +138,7 @@ class TestASRAdapter:
 
     def test_transcribe_file_not_found(self):
         with patch.dict('os.environ', {'SILICONFLOW_API_KEY': 'sk-valid'}):
-            adapter = ASRAdapter()
+            adapter = ASRAdapter(provider="siliconflow")
             with pytest.raises(FileNotFoundError):
                 adapter.transcribe("/nonexistent/audio.m4a")
 
