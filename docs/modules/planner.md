@@ -107,11 +107,11 @@ Action: create_plan(chapters=[...])
 # 注册到 ToolRegistry
 PLANNER_TOOLS = [
     Tool(
-        name="send_frames_to_claude",
-        description="将指定帧（base64 编码）发送给 Claude 进行视觉分析，"
+        name="send_frames_to_llm",
+        description="将指定帧（base64 编码）发送给 LLM Provider 进行视觉分析，"
                     "返回帧内容的文字描述和结构分析。"
                     "当需要了解视频某段的内容时使用此工具。",
-        execute=send_frames_to_claude
+        execute=send_frames_to_llm
     ),
     Tool(
         name="create_plan",
