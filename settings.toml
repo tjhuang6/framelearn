@@ -12,7 +12,7 @@ text_mode = "appserver"
 
 # VISION 场景：视频关键帧分析、图片理解
 # 可选：appserver / api
-vision_mode = "api"
+vision_mode = "appserver"
 
 # ASR 场景：音频转文字（只支持 api）
 # 注：Codex app-server 暂不支持音频输入，必须用 Whisper API

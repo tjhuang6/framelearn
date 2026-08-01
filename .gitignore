@@ -1,3 +1,8 @@
 .claude
 mine/
 test/src
+.env
+__pycache__/
+.venv
+.vscode
+.obsidian
