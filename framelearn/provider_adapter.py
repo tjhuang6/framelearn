@@ -42,7 +42,7 @@ PROVIDERS: dict[str, dict] = {
     "openai": {
         "name": "OpenAI",
         "base_url": "https://api.openai.com/v1/",
-        "default_model": "gpt-4.1-mini",
+        "default_model": "gpt-5.6-luna",   # luna: 最便宜快速；terra: 平衡；sol/gpt-5.6: 旗舰
         "type": "openai",
         "reg_url": "https://platform.openai.com/api-keys",
     },
