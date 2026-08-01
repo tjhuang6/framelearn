@@ -1,5 +1,7 @@
 # FrameLearn
 
+[English](README.en.md) | 中文
+
 一个 AI Agent，将 Bilibili / YouTube 编程教学视频自动转换为图文教程——让你按自己的节奏学习，遇到不懂的地方随时向 AI 提问。
 
 ## 它能做什么
