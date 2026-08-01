@@ -57,7 +57,7 @@ def _repl(workspace: str):
     try:
         while True:
             try:
-                user_input = input("你 > ").strip()
+                user_input = input("> ").strip()
             except EOFError:
                 print()
                 break
