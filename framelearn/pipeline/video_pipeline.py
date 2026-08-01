@@ -116,23 +116,39 @@ class VideoPipeline:
 
             print(f"✅ 保留 {len(final_frames)} 个关键帧")
 
-            # Step 6: Generate document
-            print("📝 生成教材...")
+            # Step 6: Generate documents (both notes and textbook)
+            print("📝 生成课堂笔记...")
             generator = DocumentGenerator()
             try:
-                markdown = generator.generate(
+                notes_md = generator.generate(
                     keyframes=final_frames,
                     subtitle=cleaned_subtitle,
                     video_title=self.video_path.stem,
+                    mode="notes",
                 )
             except Exception as e:
-                return self._error_result(f"文档生成失败：{e}")
+                return self._error_result(f"笔记生成失败：{e}")
 
-            # Save markdown
-            md_path = self.output_dir / "index.md"
-            md_path.write_text(markdown, encoding="utf-8")
+            print("📖 生成教材版...")
+            try:
+                textbook_md = generator.generate(
+                    keyframes=final_frames,
+                    subtitle=cleaned_subtitle,
+                    video_title=self.video_path.stem,
+                    mode="textbook",
+                )
+            except Exception as e:
+                return self._error_result(f"教材生成失败：{e}")
 
-            print(f"✅ 教材已生成：{md_path}")
+            # Save both versions
+            notes_path = self.output_dir / "notes.md"
+            notes_path.write_text(notes_md, encoding="utf-8")
+
+            textbook_path = self.output_dir / "index.md"
+            textbook_path.write_text(textbook_md, encoding="utf-8")
+
+            print(f"✅ 教材已生成：{textbook_path}")
+            print(f"✅ 笔记已生成：{notes_path}")
 
             return PipelineResult(
                 output_dir=self.output_dir,
