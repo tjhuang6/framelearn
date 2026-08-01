@@ -109,12 +109,14 @@ class TestASRAdapter:
     def test_init_without_key_raises(self):
         with patch.dict('os.environ', {'SILICONFLOW_API_KEY': ''}):
             with pytest.raises(ValueError, match="SILICONFLOW_API_KEY"):
-                ASRAdapter()
+                adapter = ASRAdapter(provider="siliconflow")
+                adapter.transcribe("fake.m4a")
 
     def test_init_with_placeholder_key_raises(self):
         with patch.dict('os.environ', {'SILICONFLOW_API_KEY': 'your_key_here'}):
             with pytest.raises(ValueError, match="SILICONFLOW_API_KEY"):
-                ASRAdapter()
+                adapter = ASRAdapter(provider="siliconflow")
+                adapter.transcribe("fake.m4a")
 
     def test_transcribe_success(self, tmp_path):
         audio = tmp_path / "test.m4a"
