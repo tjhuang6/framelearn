@@ -93,6 +93,25 @@ class FetchSubtitleTool(BaseTool):
         """
 ```
 
+### load_local_subtitle
+
+```python
+class LoadLocalSubtitleTool(BaseTool):
+    name = "load_local_subtitle"
+    description = "本地视频文件时，检查同目录是否有同名 .srt 或 .vtt 字幕文件。"
+                  "成功时解析字幕并返回带时间戳文字稿，跳过 Whisper 转写。"
+
+    def execute(self, video_path: str) -> list[TranscriptRow] | None:
+        """
+        检查 video.mp4 同目录的：
+          - video.srt
+          - video.zh.srt
+          - video.vtt
+        优先选择中文字幕，解析成 TranscriptRow 列表。
+        返回 None 表示无字幕，上层回退到 Whisper 流程。
+        """
+```
+
 ### download_video
 
 ```python
