@@ -294,23 +294,24 @@ CommandRouter.execute():
 
 ```
 用户输入：
-  framelearn "处理这个视频"（缺少 URL）
+  framelearn "处理这个视频"（缺少 URL 或路径）
 
      ↓
 
 CommandParser.parse():
   1. 不是传统命令
   2. 调用 LLM
-  3. LLM 输出："error: 缺少视频链接"
-  4. 抛出 ValueError("缺少视频链接")
+  3. LLM 输出："error: 缺少视频链接或文件路径"
+  4. 抛出 ValueError("缺少视频链接或文件路径")
 
      ↓
 
 main() 捕获异常：
-  ❌ 错误：缺少视频链接
+  ❌ 错误：缺少视频链接或文件路径
   
   提示：使用传统命令格式：
     framelearn run "https://..."
+    framelearn run "/path/to/video.mp4"
 ```
 
 ---
