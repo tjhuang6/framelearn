@@ -94,3 +94,25 @@ tone = "balanced"
 
 # 详略程度：brief（简略）/ standard（标准）/ detailed（详实）
 detail_level = "standard"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ASR 模型（音频转文字）
+# ═══════════════════════════════════════════════════════════════════
+
+[asr]
+# 可选：siliconflow（无时间戳，简单）/ dashscope（词级时间戳，推荐长视频）
+provider = "siliconflow"
+model = "FunAudioLLM/SenseVoiceSmall"
+language_hints = ["zh", "en"]
+disfluency_removal = false     # 保留语气词，时间轴更自然
+chunk_duration = 1800          # 分段时长（秒，默认 30 分钟）
+overlap = 0                    # 第一版不做重叠
+poll_interval = 5              # 百炼任务轮询间隔（秒）
+poll_timeout = 1800            # 单段最大等待时间（秒）
+
+[asr.oss]
+bucket = ""                    # 阿里云 OSS Bucket 名称（dashscope 时必填）
+region = "oss-cn-hangzhou"     # OSS 节点
+prefix = "framelearn-audio/"  # 上传路径前缀
+url_ttl = 86400                # 签名 URL 有效期（秒，默认 24 小时）
