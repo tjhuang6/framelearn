@@ -1,34 +1,72 @@
 """Document generator using Codex app-server or Vision API."""
 
 from pathlib import Path
+from typing import Literal
 
 from framelearn.config import get as config_get
 
 
-_PROMPT_TEMPLATE = """你是一个编程教程整理助手。根据视频关键帧和字幕，生成结构化的 Markdown 教材。
+# ── 笔记版 prompt ─────────────────────────────────────────────────
+_NOTES_PROMPT = """你是一个编程课堂笔记整理助手。根据视频字幕，生成结构化的课堂笔记。
 
-# 字幕文字
+# 字幕原文
 
 <subtitle>
 {subtitle}
 </subtitle>
 
-# 关键帧
+# 关键帧列表
 
 <frames>
 {frames_description}
 </frames>
 
-# 要求
+# 输出要求
 
-1. 提取章节结构（使用 ## 标题）
-2. 每个章节总结核心要点（3-5 条）
-3. 引用关键帧（格式：![说明文字](src/frame_001.jpg)）
-4. 提取代码片段并标注语言（```python 等）
-5. 保持专业但易懂的语言风格
+- 按视频内容的自然段落划分章节（## 标题）
+- 每个章节列出 3-5 条核心知识点（bullet points）
+- 提取所有代码片段，标注语言
+- 引用关键帧（格式：![说明](src/frame_001.jpg)）
+- 语言简练，去除口水词，保留技术信息
+- 输出 Markdown 格式
 
-输出 Markdown 格式。
 """
+
+# ── 教材版 prompt ─────────────────────────────────────────────────
+_TEXTBOOK_PROMPT = """你是一个技术图书编辑，负责将编程课视频整理成正式教材。
+
+字幕是老师的原话，你需要：
+1. 去掉口水词（"那么"、"就是说"、"大家注意"、"咱们"、"啊"、"嗯"等）
+2. **保留老师的讲解逻辑和节奏**——老师先铺垫什么、后解释什么、用什么例子引入，这个顺序要保留
+3. 把口语句式改成书面语，但不要改变意思，不要做知识压缩
+4. 每个概念要有引入、解释、示例、小结，像教材章节一样完整
+5. 代码要完整保留，加注释说明每行的作用
+6. 在合适位置引用关键帧（格式：![说明文字](src/frame_001.jpg)）
+
+# 字幕原文
+
+<subtitle>
+{subtitle}
+</subtitle>
+
+# 关键帧列表
+
+<frames>
+{frames_description}
+</frames>
+
+# 输出要求
+
+- 用 ## 划分章节，章节标题反映该段的核心内容
+- 正文用流畅的书面语段落，不用 bullet points 列知识点
+- 代码块完整，有注释
+- 关键帧在相关段落后引用
+- 输出 Markdown 格式
+
+"""
+
+
+DocMode = Literal["notes", "textbook"]
 
 
 class DocumentGenerator:
@@ -43,6 +81,7 @@ class DocumentGenerator:
         keyframes: list[Path],
         subtitle: str,
         video_title: str,
+        mode: DocMode = "textbook",
     ) -> str:
         """Generate markdown tutorial.
 
@@ -50,37 +89,44 @@ class DocumentGenerator:
             keyframes: List of paths to keyframe images
             subtitle: Cleaned subtitle text
             video_title: Title of the video
+            mode: "notes" (bullet-point summary) or "textbook" (prose tutorial)
 
         Returns:
             Generated markdown content
         """
         if self.vision_mode == "appserver":
-            return self._generate_via_appserver(keyframes, subtitle, video_title)
+            return self._generate_via_appserver(keyframes, subtitle, video_title, mode)
         else:
-            return self._generate_via_api(keyframes, subtitle, video_title)
+            return self._generate_via_api(keyframes, subtitle, video_title, mode)
+
+    def _build_prompt(
+        self,
+        keyframes: list[Path],
+        subtitle: str,
+        mode: DocMode,
+    ) -> str:
+        frames_desc = "\n".join(
+            f"关键帧 {i+1}: {frame.name}"
+            for i, frame in enumerate(keyframes[:20])
+        )
+        template = _TEXTBOOK_PROMPT if mode == "textbook" else _NOTES_PROMPT
+        return template.format(
+            subtitle=subtitle[:12000],
+            frames_description=frames_desc,
+        )
 
     def _generate_via_appserver(
         self,
         keyframes: list[Path],
         subtitle: str,
         video_title: str,
+        mode: DocMode,
     ) -> str:
         """Generate via codex app-server."""
         from framelearn.app_server.session import AppServerSession
 
-        # Prepare frames description
-        frames_desc = "\n".join([
-            f"关键帧 {i+1}: {frame.name}"
-            for i, frame in enumerate(keyframes[:20])  # Limit to 20 frames
-        ])
+        prompt = self._build_prompt(keyframes, subtitle, mode)
 
-        prompt = _PROMPT_TEMPLATE.format(
-            subtitle=subtitle[:10000],  # Limit subtitle length
-            frames_description=frames_desc,
-        )
-
-        # TODO: Support sending actual images via localImage
-        # For now, just send text prompt
         session = AppServerSession(workspace=".")
         result = session.run_turn(prompt)
         session.close()
@@ -95,7 +141,7 @@ class DocumentGenerator:
         keyframes: list[Path],
         subtitle: str,
         video_title: str,
+        mode: DocMode,
     ) -> str:
         """Generate via provider_adapter (Vision API)."""
-        # TODO: Implement in Task #28
         raise NotImplementedError("API mode not yet implemented")
