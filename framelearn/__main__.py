@@ -1,9 +1,19 @@
 """CLI entry point for FrameLearn."""
 
+import os
+import shutil
 import sys
 
 from framelearn.command_parser import CommandParser
 from framelearn.router import CommandRouter
+
+
+def _check_codex():
+    """Warn if codex CLI is not found (required for ask command)."""
+    if not shutil.which("codex"):
+        print("⚠️  警告：未找到 codex CLI，ask 命令将无法使用")
+        print("   安装：npm install -g @openai/codex")
+        print()
 
 
 def main():
@@ -17,9 +27,12 @@ def main():
         sys.exit(1)
 
     user_input = " ".join(sys.argv[1:])
+    workspace = os.getcwd()
+
+    _check_codex()
 
     parser = CommandParser()
-    router = CommandRouter()
+    router = CommandRouter(workspace=workspace)
 
     try:
         command = parser.parse(user_input)
@@ -45,6 +58,8 @@ def main():
     except Exception as e:
         print(f"❌ 未知错误：{e}")
         sys.exit(1)
+    finally:
+        router.close()
 
 
 if __name__ == "__main__":
