@@ -79,7 +79,10 @@ The agent references the original video content and generated notes to answer ac
 
 ## Docs
 
-- [Technical Architecture](docs/architecture.md)
+- [Technical Architecture](docs/architecture.en.md)
+- [Module Interface Design](docs/modules/)
+- [Hello-Agents Study Notes](docs/hello-agents/)
+- [Technical Decisions](docs/decisions/)
 
 ## License
 
