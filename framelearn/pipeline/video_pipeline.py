@@ -27,7 +27,7 @@ class PipelineResult:
 class VideoPipeline:
     """Orchestrates video → audio → ASR → keyframes → document generation."""
 
-    def __init__(self, video_path: str, output_dir: Optional[str] = None):
+    def __init__(self, video_path: str, output_dir: Optional[str] = None, subtitle_path: Optional[str] = None):
         self.video_path = Path(video_path)
 
         if not self.video_path.exists():
@@ -42,6 +42,7 @@ class VideoPipeline:
             self.output_dir = base_output / video_title
 
         self.keep_temp = config_get("video.keep_temp_files", False)
+        self.subtitle_path = Path(subtitle_path) if subtitle_path else None
 
     def run(self) -> PipelineResult:
         """Execute the full pipeline."""
