@@ -305,11 +305,8 @@ class TestDocumentGenerator:
 
         gen = DocumentGenerator()
         gen._generate_single = fake_generate
-            mock_session.return_value = mock_instance
-
-            gen = DocumentGenerator()
-            with pytest.raises(RuntimeError, match="Document generation failed"):
-                gen.generate([(frame, 0.0)], "字幕", "测试")
+        with pytest.raises(RuntimeError, match="Document generation failed"):
+            gen.generate([(frame, 0.0)], "字幕", "测试")
 
 
 # ------------------------------------------------------------------
