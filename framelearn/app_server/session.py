@@ -35,6 +35,7 @@ class TurnResult:
     interrupted: bool = False
     error: Optional[str] = None
     should_retire: bool = False  # True → caller must discard this session
+    written_files: list[str] = field(default_factory=list)  # paths written by fileChange events
 
 
 # ------------------------------------------------------------------
