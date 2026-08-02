@@ -363,7 +363,9 @@ class TestDocumentGeneratorReview:
         self.gen = DocumentGenerator()
 
     def test_review_ok_for_good_content(self):
-        draft = "# 本节内容\n\n这是一段完整的讲解文字，详细描述了 Python 中类的使用方式，包括继承和方法重写等核心概念。共超过一百个字符的内容。"
+        # 构造 > 100 字的内容，且无口水词、无视觉关键词
+        body = "Python 中类的使用方式包括继承和方法重写。" * 8  # ~160 字
+        draft = f"# 本节内容\n\n{body}"
         review = self.gen._review_segment(draft, "今天讲Python")
         assert review["ok"] is True
         assert review["issues"] == []
