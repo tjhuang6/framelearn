@@ -265,12 +265,15 @@ class DashscopeBackend:
         while start < total:
             dur = min(self.chunk_duration, total - start)
             out = temp_dir / f"chunk_{index:03d}.m4a"
-            subprocess.run(
-                ["ffmpeg", "-i", str(audio_path),
-                 "-ss", str(start), "-t", str(dur),
-                 "-c", "copy", "-y", str(out)],
-                check=True, capture_output=True,
-            )
+            if out.exists() and out.stat().st_size > 0:
+                print(f"   ⏭️  chunk_{index:03d}.m4a 已存在，跳过切片")
+            else:
+                subprocess.run(
+                    ["ffmpeg", "-i", str(audio_path),
+                     "-ss", str(start), "-t", str(dur),
+                     "-c", "copy", "-y", str(out)],
+                    check=True, capture_output=True,
+                )
             chunks.append(AudioChunk(
                 index=index,
                 path=out,
