@@ -18,17 +18,17 @@ class KeyframeDeduplicator:
 
     def deduplicate(
         self,
-        frames: list[Path],
+        frames: list[tuple[Path, float]],
         max_frames: int = 100,
-    ) -> list[Path]:
+    ) -> list[tuple[Path, float]]:
         """Remove duplicate frames and limit count.
 
         Args:
-            frames: List of frame paths
+            frames: List of (frame_path, timestamp_seconds) tuples
             max_frames: Maximum number of frames to keep
 
         Returns:
-            Deduplicated list of frame paths
+            Deduplicated list of (frame_path, timestamp_seconds) tuples
         """
         if not frames:
             return []
@@ -36,7 +36,7 @@ class KeyframeDeduplicator:
         unique_frames = []
         seen_hashes = []
 
-        for frame_path in frames:
+        for frame_path, timestamp in frames:
             try:
                 img = Image.open(frame_path)
                 phash = imagehash.phash(img)
@@ -50,7 +50,7 @@ class KeyframeDeduplicator:
                         break
 
                 if not is_duplicate:
-                    unique_frames.append(frame_path)
+                    unique_frames.append((frame_path, timestamp))
                     seen_hashes.append(phash)
 
                     if len(unique_frames) >= max_frames:
