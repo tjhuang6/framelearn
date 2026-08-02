@@ -134,6 +134,16 @@ class DocumentGenerator:
         if result.error:
             raise RuntimeError(f"Document generation failed: {result.error}")
 
+        # Codex writes the content to a file and returns a summary in final_text.
+        # Prefer reading the actual written .md file over the summary message.
+        for path in result.written_files:
+            if path.endswith(".md"):
+                try:
+                    return Path(path).read_text(encoding="utf-8")
+                except Exception:
+                    continue
+
+        # Fallback: return whatever final_text we got
         return result.final_text or ""
 
     def _generate_via_api(
