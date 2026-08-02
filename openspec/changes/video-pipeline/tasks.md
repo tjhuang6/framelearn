@@ -373,9 +373,152 @@ pytest test/src/test_pipeline.py -v
 - [ ] 手动测试通过（真实视频生成教材）
 - [ ] FFmpeg 未安装时有清晰提示
 - [ ] ASR API 错误有友好提示
-- [ ] 输出目录结构符合设计
+- [ ] 输出目录结构符合设计（时间戳文件名）
 - [ ] README 包含完整使用说明
 - [ ] 无临时文件残留（keep_temp_files=false 时）
+- [ ] 3 小时视频全量字幕和关键帧都被使用（不截断）
+- [ ] visual_script 模式生成的讲稿保持时间顺序
+
+---
+
+## 阶段 8：Agent 化（关键帧选择、质量评审、自动重试）
+
+### Task 8.1：FFmpegHelper 加单帧截取
+
+**文件**：`framelearn/pipeline/ffmpeg_helper.py`
+
+**子任务**：
+- [ ] 实现 `capture_single_frame(video_path, timestamp, output_path)` — 精确截取某秒的帧
+- [ ] 编写单元测试（mock subprocess）
+
+**接口**：
+```python
+@staticmethod
+def capture_single_frame(
+    video_path: str,
+    timestamp: float,   # 秒数
+    output_path: str,
+) -> bool:
+    """ffmpeg -ss <timestamp> -i video -vframes 1 output.jpg"""
+```
+
+**依赖**：Task 1.2
+
+---
+
+### Task 8.2：实现 AgentKeyframeSelector
+
+**文件**：`framelearn/pipeline/agent_keyframe_selector.py`
+
+**职责**：
+- LLM 逐段读字幕，决定哪个时间点需要截图
+- 调用 `FFmpegHelper.capture_single_frame()` 截取
+- LLM 看图，判断是否保留（有教学价值？）
+- 返回精选关键帧列表
+
+**接口**：
+```python
+class AgentKeyframeSelector:
+    def select(
+        self,
+        video_path: str,
+        subtitle_with_timestamps: list[TranscriptSegment],
+        existing_keyframes: list[tuple[Path, float]],
+    ) -> list[tuple[Path, float]]:
+        """
+        Agent loop:
+        1. LLM reads subtitle segment → decide if frame needed
+        2. If yes: capture_single_frame() at segment.start
+        3. LLM evaluates image → keep or discard
+        4. Repeat for all segments
+        """
+```
+
+**LLM 决策逻辑**：
+```
+输入：字幕段落文字
+问 LLM：
+  "这段字幕需要截图吗？判断依据：
+   - 提到'看图'、'如图'、'代码'、'屏幕' → 需要
+   - 只是口头讲解，无参考内容 → 不需要
+   返回 JSON: {need_frame: bool, reason: str}"
+
+如果 need_frame = true：
+  截图 → 问 LLM：
+  "这张图有教学价值吗？
+   - PPT/代码/终端 → 保留
+   - 讲师人脸/空白屏 → 丢弃
+   返回 JSON: {keep: bool, reason: str}"
+```
+
+**依赖**：Task 8.1、ASRAdapter（需要时间戳）
+
+---
+
+### Task 8.3：DocumentGenerator 加质量评审循环
+
+**文件**：`framelearn/pipeline/doc_generator.py`
+
+**子任务**：
+- [ ] 实现 `_review_segment(draft, segment)` — LLM 评审单段质量
+- [ ] 实现重试逻辑：质量差 → 换更大模型重试（最多 2 次）
+- [ ] 实现缺图检测：字幕提到"如图"但段内无关键帧 → 触发补帧
+
+**质量评审逻辑**：
+```python
+def _review_segment(self, draft: str, segment: Segment) -> ReviewResult:
+    """LLM 评审生成的段落质量。"""
+    # 检查点：
+    # - 内容长度 < 100 字 → too_short
+    # - 包含原始口水词 → not_cleaned
+    # - 字幕提到图但没插图 → missing_image
+    # 返回：{ok: bool, issues: list[str], suggestion: str}
+```
+
+**重试策略**：
+```
+第 1 次失败 → 同模型重试，加强 prompt
+第 2 次失败 → 升级到更大模型（8B → 32B）
+第 3 次失败 → 降级保存原始字幕段落（不丢内容）
+```
+
+**依赖**：Task 6.x（DocumentGenerator 基础实现）
+
+---
+
+### Task 8.4：VideoPipeline 集成 Agent 模式
+
+**文件**：`framelearn/pipeline/video_pipeline.py`
+
+**子任务**：
+- [ ] 配置项 `agent.keyframe_selection = true/false`（默认 false，避免成本过高）
+- [ ] 配置项 `agent.quality_review = true/false`（默认 false）
+- [ ] 在 Step 4（关键帧）后：如果 `agent.keyframe_selection = true`，调用 `AgentKeyframeSelector`
+- [ ] 在 Step 6（文档生成）后：如果 `agent.quality_review = true`，调用评审循环
+
+**配置**（settings.toml 新增）：
+```toml
+[agent]
+keyframe_selection = false   # true = LLM 决定截哪帧（慢，但精准）
+quality_review = false       # true = 生成后 LLM 评审质量并重试
+review_model = "qwen3-vl-8b" # 评审用模型
+upgrade_model = "qwen3-vl-32b" # 质量差时升级到此模型
+```
+
+**依赖**：Task 8.2、Task 8.3
+
+---
+
+### Task 8.5：Agent 化单元测试
+
+**文件**：`test/src/test_agent_keyframe.py`
+
+**子任务**：
+- [ ] mock LLM 决策，验证 `AgentKeyframeSelector` 逻辑
+- [ ] 验证质量评审重试次数上限
+- [ ] 验证降级策略（第 3 次失败保存原始字幕）
+
+**依赖**：Task 8.2、Task 8.3
 
 ---
 
@@ -387,6 +530,24 @@ pytest test/src/test_pipeline.py -v
 | 2 | 图片处理 | 1-2 小时 |
 | 3 | 字幕清洗 | 1 小时 |
 | 4 | 文档生成 | 2-3 小时 |
+| 5 | 主流程 | 2-3 小时 |
+| 6 | 配置 | 0.5 小时 |
+| 7 | 测试文档 | 2-3 小时 |
+| **8** | **Agent 化** | **4-6 小时** |
+| **总计** | | **15-22 小时（3-4 个工作日）** |
+
+---
+
+## 风险与对策
+
+| 风险 | 概率 | 影响 | 对策 |
+|------|------|------|------|
+| FFmpeg 命令平台差异 | 中 | 中 | 在 macOS/Linux 上测试；Windows 用户提供详细文档 |
+| 百炼 API 限流 | 低 | 高 | 重试逻辑 + 友好提示 |
+| 长视频内存溢出 | 低 | 高 | 流式处理；大文件分批上传 |
+| Agent 关键帧选择成本过高 | 中 | 中 | 默认关闭；配置项控制 |
+| LLM 评审误判（好内容被重试） | 中 | 低 | 最多重试 2 次；第 3 次降级保存 |
+| 关键帧全黑屏 | 低 | 低 | Agent 评审自动跳过；保留至少 1 帧 |
 | 5 | 主流程 | 2-3 小时 |
 | 6 | 配置 | 0.5 小时 |
 | 7 | 测试文档 | 2-3 小时 |
