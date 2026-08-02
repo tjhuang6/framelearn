@@ -213,9 +213,9 @@ class DocumentGenerator:
     ) -> str:
         """Generate markdown for a single segment."""
         if self.vision_mode == "appserver":
-            return self._generate_via_appserver(keyframes, subtitle, "", mode)
+            return self._generate_via_appserver(keyframes, subtitle, mode)
         else:
-            return self._generate_via_api(keyframes, subtitle, "", mode, model_override=model_override)
+            return self._generate_via_api(keyframes, subtitle, mode, model_override=model_override)
 
     def _review_segment(self, draft: str, subtitle: str) -> dict:
         """LLM reviews generated segment quality.
