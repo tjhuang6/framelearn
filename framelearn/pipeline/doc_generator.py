@@ -129,6 +129,16 @@ _VISUAL_SCRIPT_PROMPT = """你是视频字幕转图文讲稿助手。
 DocMode = Literal["notes", "textbook", "visual_script"]
 
 
+def _fmt_ts(seconds: float) -> str:
+    """Format seconds as MM:SS or HH:MM:SS."""
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    if h > 0:
+        return f"{h:02d}:{m:02d}:{s:02d}"
+    return f"{m:02d}:{s:02d}"
+
+
 class DocumentGenerator:
     """Generate markdown tutorial from keyframes + subtitle."""
 
