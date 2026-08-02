@@ -14,6 +14,10 @@ text_mode = "appserver"
 # 可选：appserver / api
 vision_mode = "appserver"
 
+# Vision API 模式配置（当 vision_mode = "api" 时生效）
+vision_provider = "deepseek"       # deepseek / openai / anthropic
+vision_model = "deepseek-reasoner" # deepseek-reasoner / gpt-4o / claude-3.5-sonnet
+
 # ASR 场景：音频转文字（只支持 api）
 # 注：Codex app-server 暂不支持音频输入，必须用 Whisper API
 asr_mode = "api"
@@ -87,7 +91,7 @@ timestamp_tolerance = 0.5
 tone = "balanced"
 
 # 详略程度：brief（简略）/ standard（标准）/ detailed（详实）
-detail_level = "standard"
+detail_level = "detailed"
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -96,10 +100,9 @@ detail_level = "standard"
 
 [asr]
 # 可选：siliconflow（无时间戳，简单）/ dashscope（词级时间戳，推荐长视频）
-provider = "siliconflow"
+provider = "dashscope"
 # dashscope 可选模型：
 #   qwen-audio-3.0-asr-flash-filetrans   推荐，最长12小时，时间戳固定开启
-#   paraformer-v2                         老版本，需要 timestamp_alignment_enabled
 model = "qwen-audio-3.0-asr-flash-filetrans"
 language_hints = ["zh", "en"]
 diarization_enabled = false
@@ -112,7 +115,7 @@ poll_timeout = 3600            # 单段最大等待时间（秒）
 vocabulary_id = ""             # 可选热词表 ID（留空不使用）
 
 [asr.oss]
-bucket = ""                    # 阿里云 OSS Bucket 名称（dashscope 时必填）
-region = "oss-cn-hangzhou"     # OSS 节点
+bucket = "framelearn-audio"                    # 阿里云 OSS Bucket 名称（dashscope 时必填）
+region = "oss-cn-beijing"     # OSS 节点
 prefix = "framelearn-audio/"  # 上传路径前缀
 url_ttl = 86400                # 签名 URL 有效期（秒，默认 24 小时）
