@@ -126,6 +126,9 @@ class FFmpegHelper:
             return True
         except subprocess.CalledProcessError:
             return False
+
+    @staticmethod
+    def extract_keyframes(
         video_path: str,
         output_dir: str,
         scene_threshold: float = 0.3,
