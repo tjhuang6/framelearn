@@ -1,5 +1,5 @@
 # FrameLearn 配置文件
-# 敏感信息（API Key）请放在 .env 文件中
+# 敏感信息请放在 .env 文件中
 
 # ═══════════════════════════════════════════════════════════════════
 # 运行模式配置
@@ -15,11 +15,10 @@ text_mode = "appserver"
 vision_mode = "appserver"
 
 # Vision API 模式配置（当 vision_mode = "api" 时生效）
-vision_provider = "deepseek"       # deepseek / openai / anthropic
-vision_model = "deepseek-reasoner" # deepseek-reasoner / gpt-4o / claude-3.5-sonnet
+vision_provider = "deepseek"       # 
+vision_model = "deepseek-reasoner" # deepseek-reasoner
 
 # ASR 场景：音频转文字（只支持 api）
-# 注：Codex app-server 暂不支持音频输入，必须用 Whisper API
 asr_mode = "api"
 
 
@@ -83,7 +82,7 @@ timestamp_tolerance = 0.5
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 个性化生成配置（参考 Bilitato）
+# 个性化生成配置
 # ═══════════════════════════════════════════════════════════════════
 
 [style]
@@ -92,6 +91,19 @@ tone = "balanced"
 
 # 详略程度：brief（简略）/ standard（标准）/ detailed（详实）
 detail_level = "detailed"
+
+[doc_generation]
+# 文档生成模式：
+#   visual_script - 顺序图文讲稿（保留讲解顺序，不重排）
+#   notes         - 课堂笔记（bullet points）
+#   textbook      - 正式教材（知识点重排）
+mode = "visual_script"
+
+# 分段时长（秒），用于长视频分段生成
+segment_duration = 90
+
+# 每段最多关键帧数
+max_keyframes_per_segment = 10
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -113,10 +125,12 @@ overlap = 0                    # 第一版不做重叠
 poll_interval = 5              # 轮询间隔（秒）
 poll_timeout = 3600            # 单段最大等待时间（秒）
 vocabulary_id = ""             # 可选热词表 ID（留空不使用）
-keep_temp_files = false        # true 时保留切片文件到 output/任务名/temp/，方便调试
+keep_temp_files = true         # true 时保留切片文件到 output/任务名/temp/，方便调试
+
+
 
 [asr.oss]
-bucket = "framelearn-audio"                    # 阿里云 OSS Bucket 名称（dashscope 时必填）
+bucket = "framelearn-audio"   # 阿里云 OSS Bucket 名称（dashscope 时必填）
 region = "oss-cn-beijing"     # OSS 节点
 prefix = "framelearn-audio/"  # 上传路径前缀
 url_ttl = 86400                # 签名 URL 有效期（秒，默认 24 小时）
