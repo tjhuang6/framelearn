@@ -223,13 +223,31 @@ class DashscopeBackend:
                 srt=srt,
             )
 
-
         finally:
             self._cleanup(chunks, oss if 'oss' in dir() else None)
             if keep_temp:
                 print(f"📁 临时切片文件保留在：{temp_dir}")
             else:
                 shutil.rmtree(temp_dir, ignore_errors=True)
+
+    # ── Checkpoint helpers ───────────────────────────────────────
+
+    def _load_checkpoint(self, path: Path) -> dict:
+        """Load checkpoint from disk. Returns empty dict if not found."""
+        import json
+        if path.exists():
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                return {}
+        return {}
+
+    def _save_checkpoint(self, path: Path, checkpoint: dict):
+        """Persist checkpoint to disk atomically."""
+        import json
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(checkpoint, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(path)
 
     # ── Audio splitting ─────────────────────────────────────────
 
