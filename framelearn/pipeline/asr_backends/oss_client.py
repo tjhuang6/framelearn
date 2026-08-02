@@ -29,6 +29,16 @@ class OssClient:
 
         auth = oss2.Auth(key_id, key_secret)
         endpoint = f"https://{region}.aliyuncs.com"
+
+        # Increase timeout for large audio files
+        self.bucket = oss2.Bucket(
+            auth,
+            endpoint,
+            bucket_name,
+            connect_timeout=30,  # connection timeout
+            timeout=600          # read/write timeout (10 minutes)
+        )
+        endpoint = f"https://{region}.aliyuncs.com"
         self.bucket = oss2.Bucket(auth, endpoint, bucket_name)
         self._region = region
         self._bucket_name = bucket_name
