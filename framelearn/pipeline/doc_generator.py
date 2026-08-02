@@ -144,4 +144,39 @@ class DocumentGenerator:
         mode: DocMode,
     ) -> str:
         """Generate via provider_adapter (Vision API)."""
-        raise NotImplementedError("API mode not yet implemented")
+        import base64
+        from framelearn.provider_adapter import ProviderAdapter
+
+        # Build text prompt
+        text_prompt = self._build_prompt(keyframes, subtitle, mode)
+
+        # Encode keyframes to base64 (limit to first 20)
+        content = [{"type": "text", "text": text_prompt}]
+
+        for frame in keyframes[:20]:
+            if not frame.exists():
+                continue
+            try:
+                with open(frame, "rb") as f:
+                    img_data = base64.b64encode(f.read()).decode("utf-8")
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{img_data}"}
+                })
+            except Exception as e:
+                print(f"⚠️  无法读取关键帧 {frame.name}：{e}")
+
+        # Call Vision API
+        adapter = ProviderAdapter()
+        provider = config_get("runtime.vision_provider", "deepseek")
+        model = config_get("runtime.vision_model", "deepseek-reasoner")
+
+        try:
+            response = adapter.chat(
+                messages=[{"role": "user", "content": content}],
+                provider=provider,
+                model=model,
+            )
+            return response
+        except Exception as e:
+            raise RuntimeError(f"Vision API 调用失败：{e}")
