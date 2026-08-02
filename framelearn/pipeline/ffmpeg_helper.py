@@ -100,7 +100,7 @@ class FFmpegHelper:
         scene_threshold: float = 0.3,
         fallback_interval: int = 30,
         max_frames: int = 100,
-    ) -> list[Path]:
+    ) -> list[tuple[Path, float]]:
         """Extract keyframes using scene detection + fallback timing.
 
         Args:
@@ -111,8 +111,9 @@ class FFmpegHelper:
             max_frames: Maximum number of frames to extract
 
         Returns:
-            List of paths to extracted frames
+            List of (frame_path, timestamp_seconds) tuples
         """
+        import re
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -121,30 +122,80 @@ class FFmpegHelper:
         scene_dir.mkdir(exist_ok=True)
         fallback_dir.mkdir(exist_ok=True)
 
-        # Scene detection frames
+        # Scene detection with showinfo to capture timestamps
+        scene_frames = []
         try:
-            subprocess.run(
+            result = subprocess.run(
                 ["ffmpeg", "-i", video_path,
-                 "-vf", f"select='gt(scene,{scene_threshold})',scale=1280:-1",
+                 "-vf", f"select='gt(scene,{scene_threshold})',showinfo,scale=1280:-1",
                  "-vsync", "vfr", "-q:v", "2", "-y",
                  str(scene_dir / "frame_%04d.jpg")],
-                check=True, capture_output=True, text=True,
+                capture_output=True, text=True,
             )
+            # Parse showinfo output for pts_time
+            for line in result.stderr.splitlines():
+                match = re.search(r'pts_time:([\d.]+)', line)
+                if match:
+                    timestamp = float(match.group(1))
+                    scene_frames.append(timestamp)
         except subprocess.CalledProcessError:
             pass
 
-        # Fallback timing frames
+        # Fallback timing frames (known timestamps)
+        fallback_frames = []
         try:
-            subprocess.run(
-                ["ffmpeg", "-i", video_path,
-                 "-vf", f"fps=1/{fallback_interval},scale=1280:-1",
-                 "-q:v", "2", "-y",
-                 str(fallback_dir / "fallback_%04d.jpg")],
-                check=True, capture_output=True, text=True,
+            # Get video duration first
+            duration_result = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", video_path],
+                capture_output=True, text=True, check=True,
             )
-        except subprocess.CalledProcessError:
+            duration = float(duration_result.stdout.strip())
+
+            timestamp = 0.0
+            while timestamp < duration:
+                fallback_frames.append(timestamp)
+                timestamp += fallback_interval
+
+            # Extract fallback frames at those timestamps
+            for i, ts in enumerate(fallback_frames, 1):
+                subprocess.run(
+                    ["ffmpeg", "-ss", str(ts), "-i", video_path,
+                     "-vframes", "1", "-vf", "scale=1280:-1",
+                     "-q:v", "2", "-y",
+                     str(fallback_dir / f"fallback_{i:04d}.jpg")],
+                    capture_output=True,
+                )
+        except (subprocess.CalledProcessError, ValueError):
             pass
 
-        all_frames = sorted(scene_dir.glob("*.jpg")) + sorted(fallback_dir.glob("*.jpg"))
-        all_frames.sort()
-        return all_frames[:max_frames]
+        # Merge and rename with timestamps
+        all_frames_with_time = []
+
+        # Scene frames
+        scene_files = sorted(scene_dir.glob("*.jpg"))
+        for i, frame_file in enumerate(scene_files):
+            if i < len(scene_frames):
+                ts = scene_frames[i]
+                h = int(ts // 3600)
+                m = int((ts % 3600) // 60)
+                s = int(ts % 60)
+                new_name = output_dir / f"frame_{h:02d}h{m:02d}m{s:02d}s.jpg"
+                frame_file.rename(new_name)
+                all_frames_with_time.append((new_name, ts))
+
+        # Fallback frames
+        fallback_files = sorted(fallback_dir.glob("*.jpg"))
+        for i, frame_file in enumerate(fallback_files):
+            if i < len(fallback_frames):
+                ts = fallback_frames[i]
+                h = int(ts // 3600)
+                m = int((ts % 3600) // 60)
+                s = int(ts % 60)
+                new_name = output_dir / f"frame_{h:02d}h{m:02d}m{s:02d}s.jpg"
+                frame_file.rename(new_name)
+                all_frames_with_time.append((new_name, ts))
+
+        # Sort by timestamp and limit
+        all_frames_with_time.sort(key=lambda x: x[1])
+        return all_frames_with_time[:max_frames]
