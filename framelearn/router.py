@@ -44,7 +44,7 @@ class CommandRouter:
         self._workspace = workspace or os.getcwd()
         self._runtime: Optional[RuntimeAdapter] = None
 
-    def execute(self, command: str):
+    def execute(self, command: str, flags: dict = {}):
         """
         Execute a parsed command.
 
@@ -56,7 +56,7 @@ class CommandRouter:
         args = parts[1] if len(parts) > 1 else ""
 
         if cmd == "run":
-            self._run_pipeline(args)
+            self._run_pipeline(args, flags=flags)
         elif cmd == "ask":
             self._ask_question(args)
         elif cmd == "summarize":
