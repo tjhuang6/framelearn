@@ -157,7 +157,7 @@ class DocumentGenerator:
 
     def _generate_via_api(
         self,
-        keyframes: list[Path],
+        keyframes: list[tuple[Path, float]],
         subtitle: str,
         video_title: str,
         mode: DocMode,
@@ -172,18 +172,18 @@ class DocumentGenerator:
         # Encode keyframes to base64 (limit to first 20)
         content = [{"type": "text", "text": text_prompt}]
 
-        for frame in keyframes[:20]:
-            if not frame.exists():
+        for frame_path, timestamp in keyframes[:20]:
+            if not frame_path.exists():
                 continue
             try:
-                with open(frame, "rb") as f:
+                with open(frame_path, "rb") as f:
                     img_data = base64.b64encode(f.read()).decode("utf-8")
                 content.append({
                     "type": "image_url",
                     "image_url": {"url": f"data:image/jpeg;base64,{img_data}"}
                 })
             except Exception as e:
-                print(f"⚠️  无法读取关键帧 {frame.name}：{e}")
+                print(f"⚠️  无法读取关键帧 {frame_path.name}：{e}")
 
         # Call Vision API
         adapter = ProviderAdapter()
