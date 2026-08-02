@@ -266,14 +266,14 @@ class TestDocumentGenerator:
             mock_result = Mock()
             mock_result.error = None
             mock_result.final_text = "# 教材\n完整段落..."
+            mock_result.written_files = []
             mock_instance.run_turn.return_value = mock_result
             mock_session.return_value = mock_instance
 
             gen = DocumentGenerator()
-            result = gen.generate([frame], "字幕内容", "测试", mode="textbook")
+            result = gen.generate([(frame, 0.0)], "字幕内容", "测试", mode="textbook")
 
             assert "教材" in result
-            # Verify textbook prompt was used
             call_args = mock_instance.run_turn.call_args[0][0]
             assert "技术图书编辑" in call_args
 
@@ -286,14 +286,14 @@ class TestDocumentGenerator:
             mock_result = Mock()
             mock_result.error = None
             mock_result.final_text = "## 知识点\n- 要点1\n- 要点2"
+            mock_result.written_files = []
             mock_instance.run_turn.return_value = mock_result
             mock_session.return_value = mock_instance
 
             gen = DocumentGenerator()
-            result = gen.generate([frame], "字幕内容", "测试", mode="notes")
+            result = gen.generate([(frame, 0.0)], "字幕内容", "测试", mode="notes")
 
             assert "知识点" in result
-            # Verify notes prompt was used
             call_args = mock_instance.run_turn.call_args[0][0]
             assert "课堂笔记整理助手" in call_args
 
@@ -305,9 +305,10 @@ class TestDocumentGenerator:
             mock_instance = Mock()
             mock_result = Mock()
             mock_result.error = "API failed"
+            mock_result.written_files = []
             mock_instance.run_turn.return_value = mock_result
             mock_session.return_value = mock_instance
 
             gen = DocumentGenerator()
             with pytest.raises(RuntimeError, match="Document generation failed"):
-                gen.generate([frame], "字幕", "测试")
+                gen.generate([(frame, 0.0)], "字幕", "测试")
