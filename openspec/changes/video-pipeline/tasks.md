@@ -448,29 +448,11 @@ class AgentKeyframeSelector:
 **文件**：`framelearn/pipeline/doc_generator.py`
 
 **子任务**：
-- [ ] 实现 `_review_segment(draft, segment)` — LLM 评审单段质量
-- [ ] 实现重试逻辑：质量差 → 换更大模型重试（最多 2 次）
-- [ ] 实现缺图检测：字幕提到"如图"但段内无关键帧 → 触发补帧
-
-**质量评审逻辑**：
-```python
-def _review_segment(self, draft: str, segment: Segment) -> ReviewResult:
-    """LLM 评审生成的段落质量。"""
-    # 检查点：
-    # - 内容长度 < 100 字 → too_short
-    # - 包含原始口水词 → not_cleaned
-    # - 字幕提到图但没插图 → missing_image
-    # 返回：{ok: bool, issues: list[str], suggestion: str}
-```
-
-**重试策略**：
-```
-第 1 次失败 → 同模型重试，加强 prompt
-第 2 次失败 → 升级到更大模型（8B → 32B）
-第 3 次失败 → 降级保存原始字幕段落（不丢内容）
-```
-
-**依赖**：Task 6.x（DocumentGenerator 基础实现）
+- [x] 实现 `_review_segment(draft, segment)` — 启发式评审（长度、口水词、缺图）
+- [x] 实现重试逻辑：质量差 → 加强 prompt 重试，最多 3 次
+- [x] 第 3 次失败降级保存原始字幕（不丢内容）
+- [x] `_generate_with_review()` 集成评审循环
+- [x] `model_override` 支持升级模型
 
 ---
 
@@ -479,21 +461,11 @@ def _review_segment(self, draft: str, segment: Segment) -> ReviewResult:
 **文件**：`framelearn/pipeline/video_pipeline.py`
 
 **子任务**：
-- [ ] 配置项 `agent.keyframe_selection = true/false`（默认 false，避免成本过高）
-- [ ] 配置项 `agent.quality_review = true/false`（默认 false）
-- [ ] 在 Step 4（关键帧）后：如果 `agent.keyframe_selection = true`，调用 `AgentKeyframeSelector`
-- [ ] 在 Step 6（文档生成）后：如果 `agent.quality_review = true`，调用评审循环
-
-**配置**（settings.toml 新增）：
-```toml
-[agent]
-keyframe_selection = false   # true = LLM 决定截哪帧（慢，但精准）
-quality_review = false       # true = 生成后 LLM 评审质量并重试
-review_model = "qwen3-vl-8b" # 评审用模型
-upgrade_model = "qwen3-vl-32b" # 质量差时升级到此模型
-```
-
-**依赖**：Task 8.2、Task 8.3
+- [x] 配置项 `agent.keyframe_selection = true/false`（默认 false）
+- [x] 配置项 `agent.quality_review = true/false`（默认 false）
+- [x] 配置项 `agent.upgrade_model`（质量差时升级到此模型）
+- [x] 在关键帧去重后：若 `agent.keyframe_selection = true`，调用 `AgentKeyframeSelector`
+- [x] 在文档生成时：若 `agent.quality_review = true`，走评审循环
 
 ---
 
