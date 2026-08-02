@@ -294,7 +294,7 @@ class TestDocumentGenerator:
         result = gen.generate([(frame, 0.0)], "字幕内容", "测试", mode="notes")
 
         assert "知识点" in result
-        assert "课堂笔记整理助手" in captured_prompt["text"]
+        assert "技术博客作者" in captured_prompt["text"]
 
     def test_generate_error_raises(self, tmp_path):
         frame = tmp_path / "frame.jpg"
