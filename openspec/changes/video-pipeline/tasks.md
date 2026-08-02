@@ -32,9 +32,9 @@ from framelearn.pipeline import VideoPipeline
 **文件**：`framelearn/pipeline/ffmpeg_helper.py`
 
 **子任务**：
-- [ ] `check_installed()` — 检查 ffmpeg 是否在 PATH
-- [ ] `extract_audio()` — 提取音轨到 m4a
-- [ ] `extract_keyframes()` — 场景检测 + 定时保底抽帧
+- [x] `check_installed()` — 检查 ffmpeg 是否在 PATH
+- [x] `extract_audio()` — 提取音轨到 m4a
+- [x] `extract_keyframes()` — 场景检测 + 定时保底抽帧（返回带时间戳元组）
 - [ ] 编写单元测试（mock subprocess）
 
 **验收**：
