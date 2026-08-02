@@ -200,9 +200,12 @@ class DocumentGenerator:
             return f"# {video_title}\n\n" + "\n\n---\n\n".join(parts)
         else:
             quality_review = config_get("agent.quality_review", False)
-            if quality_review:
-                return self._generate_with_review(keyframes, subtitle, mode)
-            return self._generate_single(keyframes, subtitle, mode)
+            try:
+                if quality_review:
+                    return self._generate_with_review(keyframes, subtitle, mode)
+                return self._generate_single(keyframes, subtitle, mode)
+            except Exception as e:
+                raise RuntimeError(f"Document generation failed: {e}") from e
 
     def _generate_single(
         self,
