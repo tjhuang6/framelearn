@@ -125,31 +125,46 @@ class VideoPipeline:
 
             # Step 4: Extract keyframes
             print("🖼️  提取关键帧...")
-            frames_dir = temp_dir / "frames"
-            raw_frames = FFmpegHelper.extract_keyframes(
-                str(self.video_path),
-                str(frames_dir),
-                scene_threshold=config_get("video.scene_threshold", 0.3),
-                fallback_interval=config_get("video.fallback_interval", 30),
-                max_frames=config_get("video.max_keyframes", 100) * 2,  # Extract more, deduplicate later
-            )
 
-            # Step 5: Deduplicate keyframes
-            print("🔍 关键帧去重...")
-            dedup = KeyframeDeduplicator(similarity_threshold=0.9)
-            unique_frames = dedup.deduplicate(
-                raw_frames,
-                max_frames=config_get("video.max_keyframes", 100),
-            )
+            # Check for cached keyframes
+            cached_frames = sorted(src_dir.glob("frame_*.jpg"))
+            if cached_frames:
+                print(f"⏭️  使用已缓存的 {len(cached_frames)} 个关键帧...")
+                final_frames = cached_frames
+                final_frames_with_time = []
+                for frame_path in cached_frames:
+                    # Parse timestamp from filename: frame_00h01m30s.jpg
+                    name = frame_path.stem  # "frame_00h01m30s"
+                    time_str = name.split("_", 1)[1]  # "00h01m30s"
+                    h, m, s = time_str.replace("h", " ").replace("m", " ").replace("s", "").split()
+                    timestamp = int(h) * 3600 + int(m) * 60 + int(s)
+                    final_frames_with_time.append((frame_path, float(timestamp)))
+            else:
+                frames_dir = temp_dir / "frames"
+                raw_frames = FFmpegHelper.extract_keyframes(
+                    str(self.video_path),
+                    str(frames_dir),
+                    scene_threshold=config_get("video.scene_threshold", 0.3),
+                    fallback_interval=config_get("video.fallback_interval", 30),
+                    max_frames=config_get("video.max_keyframes", 100) * 2,  # Extract more, deduplicate later
+                )
 
-            # Copy to output (keep timestamp in filename)
-            final_frames = []
-            final_frames_with_time = []
-            for frame_path, timestamp in unique_frames:
-                dest = src_dir / frame_path.name
-                shutil.copy(frame_path, dest)
-                final_frames.append(dest)
-                final_frames_with_time.append((dest, timestamp))
+                # Step 5: Deduplicate keyframes
+                print("🔍 关键帧去重...")
+                dedup = KeyframeDeduplicator(similarity_threshold=0.9)
+                unique_frames = dedup.deduplicate(
+                    raw_frames,
+                    max_frames=config_get("video.max_keyframes", 100),
+                )
+
+                # Copy to output (keep timestamp in filename)
+                final_frames = []
+                final_frames_with_time = []
+                for frame_path, timestamp in unique_frames:
+                    dest = src_dir / frame_path.name
+                    shutil.copy(frame_path, dest)
+                    final_frames.append(dest)
+                    final_frames_with_time.append((dest, timestamp))
 
             print(f"✅ 保留 {len(final_frames)} 个关键帧")
 
