@@ -129,12 +129,15 @@ class VideoPipeline:
                 max_frames=config_get("video.max_keyframes", 100),
             )
 
-            # Copy to output
+            # Copy to output (keep timestamp in filename)
             final_frames = []
-            for i, frame in enumerate(unique_frames, 1):
-                dest = src_dir / f"frame_{i:03d}.jpg"
-                shutil.copy(frame, dest)
+            final_frames_with_time = []
+            for frame_path, timestamp in unique_frames:
+                # Keep original timestamp-based filename
+                dest = src_dir / frame_path.name
+                shutil.copy(frame_path, dest)
                 final_frames.append(dest)
+                final_frames_with_time.append((dest, timestamp))
 
             print(f"✅ 保留 {len(final_frames)} 个关键帧")
 
@@ -143,7 +146,7 @@ class VideoPipeline:
             generator = DocumentGenerator()
             try:
                 notes_md = generator.generate(
-                    keyframes=final_frames,
+                    keyframes=final_frames_with_time,
                     subtitle=cleaned_subtitle,
                     video_title=self.video_path.stem,
                     mode="notes",
