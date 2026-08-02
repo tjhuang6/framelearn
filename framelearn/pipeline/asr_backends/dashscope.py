@@ -188,7 +188,10 @@ class DashscopeBackend:
 
         finally:
             self._cleanup(chunks, oss if 'oss' in dir() else None)
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            if keep_temp:
+                print(f"📁 临时切片文件保留在：{temp_dir}")
+            else:
+                shutil.rmtree(temp_dir, ignore_errors=True)
 
     # ── Audio splitting ─────────────────────────────────────────
 
