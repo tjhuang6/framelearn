@@ -284,9 +284,9 @@ class TestDocumentGenerator:
         captured_prompt = {}
 
         def fake_generate(keyframes, subtitle, mode, model_override=None):
-            from framelearn.pipeline.doc_generator import DocumentGenerator as DG, DocMode
+            from framelearn.pipeline.doc_generator import DocumentGenerator as DG
             gen_inner = DG.__new__(DG)
-            captured_prompt["text"] = gen_inner._build_prompt(keyframes, subtitle, DocMode(mode))
+            captured_prompt["text"] = gen_inner._build_prompt(keyframes, subtitle, "notes")
             return "## 知识点\n- 要点1\n- 要点2"
 
         gen = DocumentGenerator()
