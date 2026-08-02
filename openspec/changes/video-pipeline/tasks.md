@@ -404,7 +404,7 @@ def capture_single_frame(
 - [x] 调用 `FFmpegHelper.capture_single_frame()` 截帧
 - [x] LLM 评估图片价值（PPT/代码 → 保留；人脸/空白 → 丢弃）
 - [x] 结果去重（±2 秒内不重复）
-- [ ] 编写单元测试（mock LLM 决策）
+- [x] 编写单元测试（mock LLM 决策）
 
 **接口**：
 ```python
