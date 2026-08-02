@@ -203,6 +203,15 @@ class AppServerSession:
             if projected.final_text is not None:
                 result.final_text = projected.final_text
 
+            # Capture file paths written by fileChange events
+            if event.get("method") == "item/completed":
+                item = (event.get("params") or {}).get("item") or {}
+                if item.get("type") == "fileChange":
+                    for ch in (item.get("changes") or []):
+                        path = ch.get("path") or ch.get("file") or ""
+                        if path:
+                            result.written_files.append(path)
+
             # Check for turn completion
             if event.get("method") == "turn/completed":
                 turn_status = (
