@@ -199,13 +199,14 @@ class TestKeyframeDeduplicator:
                 b'\xff\xda\x00\x08\x01\x01\x00\x00?\x00\xd2\xcf\x20'
                 b'\xff\xd9'
             )
-            frames.append(frame)
+            frames.append((frame, float(i * 30)))  # (path, timestamp)
 
         dedup = KeyframeDeduplicator(similarity_threshold=0.9)
         unique = dedup.deduplicate(frames, max_frames=10)
 
-        # All frames should be kept (they're different)
+        # All frames should be kept (they're different), and result is tuples
         assert len(unique) <= len(frames)
+        assert all(isinstance(item, tuple) and len(item) == 2 for item in unique)
 
     def test_max_frames_limit(self, tmp_path):
         frames = []
@@ -224,7 +225,7 @@ class TestKeyframeDeduplicator:
                 b'\xff\xda\x00\x08\x01\x01\x00\x00?\x00\xd2\xcf\x20'
                 b'\xff\xd9'
             )
-            frames.append(frame)
+            frames.append((frame, float(i * 10)))  # (path, timestamp)
 
         dedup = KeyframeDeduplicator()
         unique = dedup.deduplicate(frames, max_frames=5)
@@ -247,7 +248,7 @@ class TestKeyframeDeduplicator:
         )
 
         dedup = KeyframeDeduplicator()
-        unique = dedup.deduplicate([frame])
+        unique = dedup.deduplicate([(frame, 0.0)])
         assert len(unique) >= 1
 
 
