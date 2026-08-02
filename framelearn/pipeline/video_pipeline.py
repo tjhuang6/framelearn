@@ -141,17 +141,25 @@ class VideoPipeline:
 
             print(f"✅ 保留 {len(final_frames)} 个关键帧")
 
-            # Step 6: Generate documents (both notes and textbook)
-            print("📝 生成课堂笔记...")
+            # Step 6: Generate documents
             generator = DocumentGenerator()
             doc_mode = config_get("doc_generation.mode", "visual_script")
 
+            # Collect SRT text for precise time-based segmentation
+            srt_content = None
+            if self.subtitle_path and self.subtitle_path.suffix == ".srt":
+                srt_content = self.subtitle_path.read_text(encoding="utf-8")
+            elif transcript.has_timestamps and transcript.srt:
+                srt_content = transcript.srt
+
+            print("📝 生成课堂笔记...")
             try:
                 notes_md = generator.generate(
                     keyframes=final_frames_with_time,
                     subtitle=cleaned_subtitle,
                     video_title=self.video_path.stem,
                     mode="notes",
+                    srt_text=srt_content,
                 )
             except Exception as e:
                 return self._error_result(f"笔记生成失败：{e}")
@@ -163,6 +171,7 @@ class VideoPipeline:
                     subtitle=cleaned_subtitle,
                     video_title=self.video_path.stem,
                     mode=doc_mode,
+                    srt_text=srt_content,
                 )
             except Exception as e:
                 return self._error_result(f"文档生成失败：{e}")
@@ -171,15 +180,15 @@ class VideoPipeline:
             notes_path = self.output_dir / "notes.md"
             notes_path.write_text(notes_md, encoding="utf-8")
 
-            textbook_path = self.output_dir / "index.md"
-            textbook_path.write_text(textbook_md, encoding="utf-8")
+            main_path = self.output_dir / "index.md"
+            main_path.write_text(main_md, encoding="utf-8")
 
-            print(f"✅ 教材已生成：{textbook_path}")
+            print(f"✅ 讲稿已生成：{main_path}")
             print(f"✅ 笔记已生成：{notes_path}")
 
             return PipelineResult(
                 output_dir=self.output_dir,
-                markdown_path=textbook_path,
+                markdown_path=main_path,
                 keyframes=final_frames,
                 subtitle_text=cleaned_subtitle,
                 error=None,
