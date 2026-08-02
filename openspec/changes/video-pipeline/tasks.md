@@ -55,10 +55,10 @@ assert len(frames) > 0
 **文件**：`framelearn/pipeline/asr_adapter.py`
 
 **子任务**：
-- [ ] 定义 `TranscriptResult` 和 `TranscriptSegment` dataclass
-- [ ] 实现 `transcribe()` — 调用硅基流动 API
-- [ ] 处理 API 错误（401、429、超时）
-- [ ] 重试逻辑（最多 3 次，间隔 5 秒）
+- [x] 定义 `TranscriptResult` 和 `TranscriptSegment` dataclass
+- [x] 实现 `transcribe()` — 调用百炼 Qwen ASR API
+- [x] 处理 API 错误（401、429、超时）
+- [x] 重试逻辑（最多 3 次，间隔 5 秒）
 - [ ] 编写单元测试（mock httpx）
 
 **验收**：
