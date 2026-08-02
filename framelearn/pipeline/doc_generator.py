@@ -78,7 +78,7 @@ class DocumentGenerator:
 
     def generate(
         self,
-        keyframes: list[Path],
+        keyframes: list[tuple[Path, float]],
         subtitle: str,
         video_title: str,
         mode: DocMode = "textbook",
@@ -86,7 +86,7 @@ class DocumentGenerator:
         """Generate markdown tutorial.
 
         Args:
-            keyframes: List of paths to keyframe images
+            keyframes: List of (frame_path, timestamp_seconds) tuples
             subtitle: Cleaned subtitle text
             video_title: Title of the video
             mode: "notes" (bullet-point summary) or "textbook" (prose tutorial)
@@ -101,13 +101,22 @@ class DocumentGenerator:
 
     def _build_prompt(
         self,
-        keyframes: list[Path],
+        keyframes: list[tuple[Path, float]],
         subtitle: str,
         mode: DocMode,
     ) -> str:
+        def format_timestamp(seconds: float) -> str:
+            h = int(seconds // 3600)
+            m = int((seconds % 3600) // 60)
+            s = int(seconds % 60)
+            if h > 0:
+                return f"{h:02d}:{m:02d}:{s:02d}"
+            else:
+                return f"{m:02d}:{s:02d}"
+
         frames_desc = "\n".join(
-            f"关键帧 {i+1}: {frame.name}"
-            for i, frame in enumerate(keyframes[:20])
+            f"关键帧 {i+1} ({format_timestamp(ts)}): {frame.name}"
+            for i, (frame, ts) in enumerate(keyframes[:20])
         )
         template = _TEXTBOOK_PROMPT if mode == "textbook" else _NOTES_PROMPT
         return template.format(
@@ -117,7 +126,7 @@ class DocumentGenerator:
 
     def _generate_via_appserver(
         self,
-        keyframes: list[Path],
+        keyframes: list[tuple[Path, float]],
         subtitle: str,
         video_title: str,
         mode: DocMode,
