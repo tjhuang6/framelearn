@@ -376,7 +376,7 @@ pytest test/src/test_pipeline.py -v
 **文件**：`framelearn/pipeline/ffmpeg_helper.py`
 
 **子任务**：
-- [ ] 实现 `capture_single_frame(video_path, timestamp, output_path)` — 精确截取某秒的帧
+- [x] 实现 `capture_single_frame(video_path, timestamp, output_path)` — 精确截取某秒的帧
 - [ ] 编写单元测试（mock subprocess）
 
 **接口**：
