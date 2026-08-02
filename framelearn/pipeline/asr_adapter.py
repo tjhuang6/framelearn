@@ -33,8 +33,13 @@ class ASRAdapter:
     def __init__(self, provider: Optional[str] = None):
         self.provider = provider or config_get("asr.provider", "siliconflow")
 
-    def transcribe(self, audio_path: str, max_retries: int = 3) -> TranscriptResult:
+    def transcribe(self, audio_path: str, max_retries: int = 3, output_dir: Optional[Path] = None) -> TranscriptResult:
         """Transcribe audio file using configured provider.
+
+        Args:
+            audio_path: Path to audio file
+            max_retries: Max retry attempts (siliconflow only)
+            output_dir: If provided, temp files go to output_dir/temp (dashscope only)
 
         Raises:
             FileNotFoundError: Audio file not found
@@ -46,7 +51,7 @@ class ASRAdapter:
             raise FileNotFoundError(f"音频文件不存在：{audio_path}")
 
         if self.provider == "dashscope":
-            return self._transcribe_dashscope(path, max_retries)
+            return self._transcribe_dashscope(path, max_retries, output_dir)
         else:
             return self._transcribe_siliconflow(path, max_retries)
 
@@ -57,7 +62,7 @@ class ASRAdapter:
         backend = SiliconflowBackend(api_key=api_key, model=model)
         return backend.transcribe(path, max_retries=max_retries)
 
-    def _transcribe_dashscope(self, path: Path, max_retries: int) -> TranscriptResult:
+    def _transcribe_dashscope(self, path: Path, max_retries: int, output_dir: Optional[Path] = None) -> TranscriptResult:
         from framelearn.pipeline.asr_backends.dashscope import DashscopeBackend
         api_key = os.getenv("DASHSCOPE_API_KEY", "")
         if not api_key or api_key.startswith("your_"):
@@ -66,4 +71,4 @@ class ASRAdapter:
                 "Get your key at: https://dashscope.aliyun.com/"
             )
         backend = DashscopeBackend(api_key=api_key)
-        return backend.transcribe(path)
+        return backend.transcribe(path, output_dir=output_dir)
