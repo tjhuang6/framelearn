@@ -74,6 +74,13 @@ PROVIDERS: dict[str, dict] = {
         "type": "openai",
         "reg_url": "https://open.bigmodel.cn/usercenter/apikeys",
     },
+    "siliconflow": {
+        "name": "SiliconFlow",
+        "base_url": "https://api.siliconflow.cn/v1/",
+        "default_model": "Qwen/Qwen2.5-VL-72B-Instruct",
+        "type": "openai",
+        "reg_url": "https://siliconflow.cn/",
+    },
 }
 
 
