@@ -217,10 +217,25 @@ class DocumentGenerator:
                 print(f"   ⚙️  生成第 {seg_num}/{len(segments)} 段"
                       f"（{_fmt_ts(seg.start_time)}~{_fmt_ts(seg.end_time)}）...")
 
-                if quality_review:
-                    part = self._generate_with_review(seg.keyframes, seg.subtitle, mode)
-                else:
-                    part = self._generate_single(seg.keyframes, seg.subtitle, mode)
+                # Auto-retry on timeout/network errors (up to 3 attempts)
+                import time as _time
+                last_err = None
+                for attempt in range(3):
+                    try:
+                        if quality_review:
+                            part = self._generate_with_review(seg.keyframes, seg.subtitle, mode)
+                        else:
+                            part = self._generate_single(seg.keyframes, seg.subtitle, mode)
+                        last_err = None
+                        break
+                    except Exception as e:
+                        last_err = e
+                        wait = 15 * (attempt + 1)
+                        print(f"   ⚠️  第 {seg_num} 段第 {attempt + 1} 次失败（{e}），{wait}s 后重试...")
+                        _time.sleep(wait)
+
+                if last_err:
+                    raise RuntimeError(f"段 {seg_num} 重试 3 次均失败：{last_err}")
 
                 # Save to cache
                 if segments_dir:
