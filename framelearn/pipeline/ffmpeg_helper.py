@@ -94,7 +94,38 @@ class FFmpegHelper:
             return False
 
     @staticmethod
-    def extract_keyframes(
+    def capture_single_frame(
+        video_path: str,
+        timestamp: float,
+        output_path: str,
+    ) -> bool:
+        """Capture a single frame at the given timestamp.
+
+        Used by AgentKeyframeSelector to capture frames on demand.
+
+        Args:
+            video_path: Path to input video
+            timestamp: Timestamp in seconds
+            output_path: Path to save the captured frame (.jpg)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        h = int(timestamp // 3600)
+        m = int((timestamp % 3600) // 60)
+        s = timestamp % 60
+        ts_str = f"{h:02d}:{m:02d}:{s:06.3f}"
+
+        try:
+            subprocess.run(
+                ["ffmpeg", "-ss", ts_str, "-i", video_path,
+                 "-vframes", "1", "-vf", "scale=1280:-1",
+                 "-q:v", "2", "-y", output_path],
+                check=True, capture_output=True,
+            )
+            return True
+        except subprocess.CalledProcessError:
+            return False
         video_path: str,
         output_dir: str,
         scene_threshold: float = 0.3,
