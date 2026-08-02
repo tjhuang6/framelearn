@@ -187,14 +187,21 @@ class DocumentGenerator:
                 srt_text=srt_text,
             )
             print(f"   📐 切分为 {len(segments)} 段生成...")
+            quality_review = config_get("agent.quality_review", False)
             parts = []
             for seg in segments:
                 print(f"   ⚙️  生成第 {seg.index + 1}/{len(segments)} 段"
                       f"（{_fmt_ts(seg.start_time)}~{_fmt_ts(seg.end_time)}）...")
-                part = self._generate_single(seg.keyframes, seg.subtitle, mode)
+                if quality_review:
+                    part = self._generate_with_review(seg.keyframes, seg.subtitle, mode)
+                else:
+                    part = self._generate_single(seg.keyframes, seg.subtitle, mode)
                 parts.append(part)
             return f"# {video_title}\n\n" + "\n\n---\n\n".join(parts)
         else:
+            quality_review = config_get("agent.quality_review", False)
+            if quality_review:
+                return self._generate_with_review(keyframes, subtitle, mode)
             return self._generate_single(keyframes, subtitle, mode)
 
     def _generate_single(
