@@ -312,3 +312,134 @@ class TestDocumentGenerator:
             gen = DocumentGenerator()
             with pytest.raises(RuntimeError, match="Document generation failed"):
                 gen.generate([(frame, 0.0)], "字幕", "测试")
+
+
+# ------------------------------------------------------------------
+# FFmpegHelper.capture_single_frame
+# ------------------------------------------------------------------
+
+class TestFFmpegHelperCaptureSingleFrame:
+    def test_capture_single_frame_success(self, tmp_path):
+        output = tmp_path / "frame_00h01m30s.jpg"
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = Mock(returncode=0)
+            result = FFmpegHelper.capture_single_frame(
+                "video.mp4", 90.0, str(output)
+            )
+        assert result is True
+        cmd = mock_run.call_args[0][0]
+        assert "-ss" in cmd
+        assert "00:01:30.000" in cmd
+        assert "-vframes" in cmd
+        assert "1" in cmd
+
+    def test_capture_single_frame_failure(self, tmp_path):
+        output = tmp_path / "frame.jpg"
+        with patch('subprocess.run') as mock_run:
+            import subprocess
+            mock_run.side_effect = subprocess.CalledProcessError(1, "ffmpeg")
+            result = FFmpegHelper.capture_single_frame(
+                "video.mp4", 45.0, str(output)
+            )
+        assert result is False
+
+    def test_capture_single_frame_timestamp_format(self, tmp_path):
+        """Verify HH:MM:SS.mmm format for ffmpeg -ss."""
+        output = tmp_path / "frame.jpg"
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = Mock(returncode=0)
+            FFmpegHelper.capture_single_frame("v.mp4", 3661.5, str(output))
+        cmd = mock_run.call_args[0][0]
+        # 3661.5s = 1h 1m 1.5s → 01:01:01.500
+        assert "01:01:01.500" in cmd
+
+
+# ------------------------------------------------------------------
+# DocumentGenerator._review_segment
+# ------------------------------------------------------------------
+
+class TestDocumentGeneratorReview:
+    def setup_method(self):
+        self.gen = DocumentGenerator()
+
+    def test_review_ok_for_good_content(self):
+        draft = "# 本节内容\n\n这是一段完整的讲解文字，详细描述了 Python 中类的使用方式，包括继承和方法重写等核心概念。共超过一百个字符的内容。"
+        review = self.gen._review_segment(draft, "今天讲Python")
+        assert review["ok"] is True
+        assert review["issues"] == []
+
+    def test_review_catches_too_short(self):
+        draft = "# 简短\n太短了"
+        review = self.gen._review_segment(draft, "字幕")
+        assert review["ok"] is False
+        assert any("短" in issue for issue in review["issues"])
+
+    def test_review_catches_missing_image(self):
+        draft = "# 讲解\n" + "x" * 150  # 够长，但没有图片引用
+        review = self.gen._review_segment(draft, "如图所示，这里展示了架构")
+        assert review["ok"] is False
+        assert any("关键帧" in issue for issue in review["issues"])
+
+    def test_review_ok_with_image_ref(self):
+        draft = "# 架构\n\n如图所示，我们可以看到整体结构。\n\n![架构图](src/frame_00h01m00s.jpg)\n\n" + "x" * 100
+        review = self.gen._review_segment(draft, "如图所示，展示架构")
+        # missing_image issue should not fire
+        assert not any("关键帧" in issue for issue in review["issues"])
+
+
+# ------------------------------------------------------------------
+# DocumentGenerator._generate_with_review (Tasks 73-75)
+# ------------------------------------------------------------------
+
+class TestDocumentGeneratorWithReview:
+    def test_retry_limit_respected(self, tmp_path):
+        """质量评审失败时最多重试 3 次。"""
+        frame = tmp_path / "frame.jpg"
+        frame.touch()
+
+        call_count = {"n": 0}
+
+        def short_draft(*args, **kwargs):
+            call_count["n"] += 1
+            return "太短"  # always fails review
+
+        gen = DocumentGenerator()
+        gen._generate_single = short_draft
+
+        result = gen._generate_with_review([(frame, 0.0)], "今天讲Python", "notes")
+
+        # Must have called exactly 3 times (3 attempts)
+        assert call_count["n"] == 3
+        # Fallback: returns the original subtitle
+        assert result == "今天讲Python"
+
+    def test_returns_immediately_on_good_draft(self, tmp_path):
+        """质量通过时不重试。"""
+        frame = tmp_path / "frame.jpg"
+        frame.touch()
+
+        call_count = {"n": 0}
+        good_draft = "# 内容\n\n" + "这是高质量内容。" * 20  # long enough
+
+        def good_generate(*args, **kwargs):
+            call_count["n"] += 1
+            return good_draft
+
+        gen = DocumentGenerator()
+        gen._generate_single = good_generate
+
+        result = gen._generate_with_review([(frame, 0.0)], "今天讲Python", "notes")
+        assert call_count["n"] == 1
+        assert result == good_draft
+
+    def test_fallback_preserves_subtitle(self, tmp_path):
+        """第 3 次失败后，降级返回原始字幕内容（不丢失）。"""
+        frame = tmp_path / "frame.jpg"
+        frame.touch()
+
+        gen = DocumentGenerator()
+        gen._generate_single = lambda *a, **kw: "x"  # always too short
+
+        original_subtitle = "原始字幕内容，用于降级保存"
+        result = gen._generate_with_review([(frame, 0.0)], original_subtitle, "notes")
+        assert original_subtitle in result
