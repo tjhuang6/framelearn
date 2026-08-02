@@ -59,3 +59,40 @@ class SubtitleCleaner:
         text = re.sub(r' {2,}', ' ', text)  # max 1 space
 
         return text.strip()
+
+    @staticmethod
+    def strip_timestamps(srt_text: str) -> str:
+        """Strip SRT/VTT formatting, return plain text only.
+
+        Removes:
+        - Sequence numbers (1, 2, 3...)
+        - Timestamp lines (00:00:01,000 --> 00:00:03,000)
+        - VTT header (WEBVTT)
+        - Empty lines
+
+        Args:
+            srt_text: Raw SRT or VTT content
+
+        Returns:
+            Plain text with one line per subtitle entry
+        """
+        lines = []
+        for line in srt_text.splitlines():
+            line = line.strip()
+            # Skip empty lines
+            if not line:
+                continue
+            # Skip WEBVTT header
+            if line.startswith("WEBVTT"):
+                continue
+            # Skip sequence numbers (pure digits)
+            if line.isdigit():
+                continue
+            # Skip SRT timestamp lines (00:00:00,000 --> 00:00:00,000)
+            if re.match(r'^\d{1,2}:\d{2}:\d{2}[,\.]\d{3}\s*-->', line):
+                continue
+            # Skip VTT timestamp lines (00:00.000 --> 00:00.000)
+            if re.match(r'^\d{1,2}:\d{2}[,\.]\d{3}\s*-->', line):
+                continue
+            lines.append(line)
+        return "\n".join(lines)
