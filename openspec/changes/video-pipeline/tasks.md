@@ -476,9 +476,9 @@ class AgentKeyframeSelector:
 **文件**：`test/src/test_agent_keyframe.py`
 
 **子任务**：
-- [ ] mock LLM 决策，验证 `AgentKeyframeSelector` 逻辑
-- [ ] 验证质量评审重试次数上限
-- [ ] 验证降级策略（第 3 次失败保存原始字幕）
+- [x] mock LLM 决策，验证 `AgentKeyframeSelector` 逻辑
+- [x] 验证质量评审重试次数上限
+- [x] 验证降级策略（第 3 次失败保存原始字幕）
 
 **依赖**：Task 8.2、Task 8.3
 
