@@ -72,13 +72,28 @@ class VideoPipeline:
             if not FFmpegHelper.extract_audio(str(self.video_path), str(audio_path)):
                 return self._error_result("音轨提取失败")
 
-            # Step 2: Transcribe audio
+            # Step 2: Transcribe audio (or load existing subtitle)
             print("🎤 语音识别中...")
-            try:
-                asr = ASRAdapter()  # reads provider from settings.toml
-                transcript = asr.transcribe(str(audio_path), output_dir=self.output_dir)
-            except Exception as e:
-                return self._error_result(f"语音识别失败：{e}")
+            if self.subtitle_path is not None:
+                print(f"⏭️  使用已有字幕：{self.subtitle_path}")
+                from framelearn.pipeline.asr_adapter import TranscriptResult
+                raw_subtitle = self.subtitle_path.read_text(encoding="utf-8")
+                # Strip SRT/VTT formatting if needed — just keep plain text
+                if self.subtitle_path.suffix in (".srt", ".vtt"):
+                    from framelearn.pipeline.subtitle_cleaner import SubtitleCleaner
+                    raw_subtitle = SubtitleCleaner.strip_timestamps(raw_subtitle)
+                transcript = TranscriptResult(
+                    segments=[],
+                    full_text=raw_subtitle,
+                    has_timestamps=self.subtitle_path.suffix in (".srt", ".vtt"),
+                    srt=self.subtitle_path.read_text(encoding="utf-8") if self.subtitle_path.suffix == ".srt" else None,
+                )
+            else:
+                try:
+                    asr = ASRAdapter()  # reads provider from settings.toml
+                    transcript = asr.transcribe(str(audio_path), output_dir=self.output_dir)
+                except Exception as e:
+                    return self._error_result(f"语音识别失败：{e}")
 
             # Step 3: Clean subtitle
             print("✨ 清洗字幕...")
