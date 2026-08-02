@@ -22,7 +22,26 @@ def _check_codex():
         print()
 
 
-def _run_once(user_input: str, parser: CommandParser, router: CommandRouter):
+def _parse_flags(args: list[str]) -> tuple[str, dict]:
+    """Extract --flag value pairs from args, return (remaining_input, flags).
+
+    Supported flags:
+        --subtitle <path>   Path to existing subtitle file (skip ASR)
+    """
+    flags: dict = {}
+    remaining: list[str] = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--subtitle" and i + 1 < len(args):
+            flags["subtitle"] = args[i + 1]
+            i += 2
+        else:
+            remaining.append(args[i])
+            i += 1
+    return " ".join(remaining), flags
+
+
+def _run_once(user_input: str, parser: CommandParser, router: CommandRouter, flags: dict = {}):
     """Parse and execute a single input. Returns exit code."""
     try:
         command = parser.parse(user_input)
@@ -36,7 +55,7 @@ def _run_once(user_input: str, parser: CommandParser, router: CommandRouter):
         return 1
 
     try:
-        router.execute(command)
+        router.execute(command, flags=flags)
         return 0
     except ValueError as e:
         print(f"❌ {e}")
@@ -81,19 +100,20 @@ def main():
     """Main entry point for FrameLearn CLI."""
     workspace = os.getcwd()
 
-    # No arguments → enter interactive REPL
     if len(sys.argv) < 2:
         _repl(workspace)
         return
 
     _check_codex()
 
-    user_input = " ".join(sys.argv[1:])
+    # Extract --flag options before passing to parser
+    user_input, flags = _parse_flags(sys.argv[1:])
+
     parser = CommandParser()
     router = CommandRouter(workspace=workspace)
 
     try:
-        code = _run_once(user_input, parser, router)
+        code = _run_once(user_input, parser, router, flags=flags)
         sys.exit(code)
     finally:
         router.close()
