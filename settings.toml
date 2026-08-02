@@ -12,14 +12,15 @@ text_mode = "appserver"
 
 # VISION 场景：视频关键帧分析、图片理解
 # 可选：appserver / api
-vision_mode = "appserver"
+vision_mode = "api"
 
 # Vision API 模式配置（当 vision_mode = "api" 时生效）
-vision_provider = "deepseek"       # 
-vision_model = "deepseek-reasoner" # deepseek-reasoner
+vision_provider = "siliconflow"
+vision_model = "Qwen/Qwen2.5-VL-72B-Instruct"
 
 # ASR 场景：音频转文字（只支持 api）
 asr_mode = "api"
+asr_provider = "dashscope"
 
 
 # ═══════════════════════════════════════════════════════════════════
