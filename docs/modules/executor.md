@@ -1,5 +1,7 @@
 # 工具执行器接口设计
 
+> 状态：历史目标设计，当前未实现。仓库没有统一 `ToolExecutor`、yt-dlp 下载、Whisper 或 Tesseract OCR；当前外部工具封装集中在 `pipeline/ffmpeg_helper.py` 和 ASR backends。请以 [`../pipeline-overview.md`](../pipeline-overview.md) 为准。
+
 ## 职责
 
 封装所有外部工具（yt-dlp、ffmpeg、Whisper、Tesseract），为 Agent 提供统一的工具调用接口。执行器本身不做决策，只负责执行和返回结果。

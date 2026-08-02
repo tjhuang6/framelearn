@@ -1,5 +1,7 @@
 # 命令解析器接口设计
 
+> 状态：历史接口设计。当前 `CommandParser` 无构造参数，优先使用有效的 `TEXT_*` API 配置，否则使用本地规则；在线下载、教材 RAG 和内部 summarize 均未实现。请以 [`../architecture.md`](../architecture.md) 为准。
+
 ## 职责
 
 作为 FrameLearn 的自然语言入口层，将用户的口语化描述转换为标准命令。

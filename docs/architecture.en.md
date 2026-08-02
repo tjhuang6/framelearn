@@ -1,202 +1,122 @@
-# Technical Architecture
+# Current Technical Architecture
 
-## Overview
+This document describes the code that is currently executable in the repository. See [Documentation Status](README.md) for the status of historical plans and proposals.
 
-FrameLearn is built as a multi-step AI agent system. Rather than a fixed pipeline, each component makes autonomous decisions about what to do next based on the content it observes.
+## Scope
 
-The overall flow:
+FrameLearn is currently a local CLI application. It implements local video processing, optional subtitle reuse, DashScope/SiliconFlow ASR, subtitle cleaning, FFmpeg frame extraction, perceptual-hash deduplication, segmented Markdown generation, and general Codex/API Q&A.
 
+It does not currently implement online video downloading, a Planner Agent, OCR-based Content Analyzer, Chroma RAG, an internal learning-summary workflow, or structured image inputs to Codex app-server.
+
+## Entry and routing
+
+```text
+framelearn command / REPL
+  → framelearn.__main__
+  → CommandParser
+  → CommandRouter
+      ├── run       → VideoPipeline
+      ├── ask       → RuntimeAdapter or text provider API
+      ├── summarize → external-skill instruction only
+      └── help
 ```
-Video URL
-   ↓
-Planner Agent        ← analyzes structure, creates a plan
-   ↓
-Tool Executor        ← downloads video, extracts frames, runs OCR
-   ↓
-Content Analyzer     ← identifies key moments, segments chapters
-   ↓
-Document Generator   ← produces Markdown tutorial
-   ↓
-QA Module            ← answers user questions interactively
+
+`framelearn.__main__` supports one CLI flag, `--subtitle <path>`. Traditional commands (`run`, `ask`, `summarize`, `help`) pass through unchanged. Natural-language classification uses `TEXT_PROVIDER` and `TEXT_API_KEY` when valid; otherwise local rules route video sources to `run`, summary keywords to `summarize`, and other input to `ask`.
+
+The router validates YouTube/Bilibili URLs but reports that downloading is not implemented. Local videos are validated before `VideoPipeline` is created.
+
+## Video pipeline
+
+```text
+local video + optional subtitle
+  → existing/cached subtitle, or FFmpeg audio extraction → ASRAdapter
+  → SubtitleCleaner → subtitle.txt (+ subtitle.srt when available)
+  → cached frames, or scene detection + fixed-interval extraction
+  → KeyframeDeduplicator
+  → optional AgentKeyframeSelector
+  → DocumentGenerator → notes.md + index.md
 ```
 
----
+`PipelineResult` contains the output directory, main Markdown path, final frame paths, cleaned subtitle text, and an optional error.
 
-## Components
+## ASR
 
-### 1. Planner Agent
+`ASRAdapter` reads `asr.provider`:
 
-Responsible for understanding the video before any processing begins.
+| Provider | Timestamps | Current flow |
+|---|---:|---|
+| `dashscope` | Yes | chunk → OSS upload → async tasks → poll → merge → SRT |
+| `siliconflow` | No | upload the complete audio file → plain text |
 
-- Samples a small number of frames from the video at regular intervals
-- Sends them to Claude with the prompt: "Analyze the structure of this programming tutorial. Identify the main sections and what each one covers."
-- Outputs a **conversion plan**: a list of chapters, estimated time ranges, and what to focus on in each
-- The rest of the system executes against this plan
+DashScope stores chunks and `asr_checkpoint.json` under `output/<video>/temp`, restores completed tasks, adds each chunk's starting offset to timestamps, and attempts to delete uploaded OSS objects. It needs `DASHSCOPE_API_KEY`, `OSS_ACCESS_KEY_ID`, and `OSS_ACCESS_KEY_SECRET`.
 
-Why this matters: without a plan, the agent would process every frame blindly. The planner reduces noise and focuses effort on meaningful segments.
+SiliconFlow retries rate limits and failures but produces no SRT, so downstream alignment falls back to a character-rate estimate.
 
-### 2. Tool Executor
+## Frame extraction
 
-A thin wrapper that lets the agent call external tools by name. Tools available:
+`FFmpegHelper.extract_keyframes()` always performs both scene detection and fixed-interval extraction; the latter is not conditional on scene detection failure. Frames are merged and renamed with whole-second timestamps.
 
-| Tool | Purpose |
+`KeyframeDeduplicator` compares a 64-bit pHash against every retained frame and discards frames whose normalized similarity is greater than 0.9. This is a greedy, approximately O(n²) pass.
+
+`AgentKeyframeSelector` is disabled by default. It augments the existing frame set rather than replacing it. Its direct-API image path currently references a missing `ProviderAdapter` class, while the app-server path sends text only, so it should be treated as experimental.
+
+## Document generation
+
+`DocumentGenerator` supports `visual_script`, `notes`, and `textbook`. The current `notes` prompt asks for connected technical-blog prose rather than bullet points.
+
+Segmentation is enabled only when the cleaned subtitle is longer than 8,000 characters or there are more than 20 frames. With SRT, chunks are grouped by timestamps; otherwise the splitter estimates time at four characters per second. Each segment is cached under `segments_<mode>/`, retried up to three times for generation errors, and merged into the final document.
+
+When `agent.quality_review = true`, local heuristics check minimum length, filler-word frequency, and missing image references. A failed draft is regenerated up to three times and then falls back to the original subtitle. There is no separate LLM reviewer in the current implementation.
+
+| Vision mode | Current behavior |
 |---|---|
-| `download_video` | Calls yt-dlp to download from YouTube or Bilibili |
-| `extract_frames` | Calls ffmpeg to extract frames at specified timestamps |
-| `run_ocr` | Calls Tesseract to extract text from a frame image |
-| `detect_scene_changes` | Uses ffmpeg scene detection to find visual transitions |
+| `api` | Sends prompt and base64-encoded local images through `provider_adapter.call_llm()` |
+| `appserver` | Starts a Codex app-server session but sends only text; frame names appear in the prompt |
 
-The agent decides which tools to call and in what order. It does not follow a hardcoded sequence.
+## App-server subsystem
 
-### 3. Content Analyzer
-
-Processes the extracted frames and decides which ones are worth including in the tutorial.
-
-Decision criteria:
-- **Code change detected**: the code on screen differs from the previous frame
-- **Error appeared**: the frame contains a visible error message or traceback
-- **Terminal output**: a command was run and output is visible
-- **New section**: the video title, slide, or heading changed
-
-Frames that don't meet any criteria are discarded. This keeps the output tight and relevant.
-
-### 4. Document Generator
-
-Takes the selected frames and the conversion plan, and produces the final Markdown document.
-
-For each chapter:
-1. Writes a `##` heading
-2. Inserts the key frame screenshots as images
-3. Generates a step-by-step explanation of what happens in that segment
-4. Formats any detected code into fenced code blocks with the correct language tag
-5. Adds a timestamp link back to the source video
-
-Output is a single `tutorial.md` file under the `output/` directory.
-
-### 5. QA Module
-
-Allows the user to ask questions after the tutorial is generated.
-
-- Loads the generated tutorial and a summary of the video structure into context
-- Accepts a natural language question from the user
-- If the question refers to a specific step, the agent re-examines the corresponding frames
-- Returns a precise answer grounded in the actual video content
-
----
-
-## Agent Loop Design
-
-The core agent loop follows a **Plan → Act → Observe → Reflect** cycle:
-
-```
-Plan:     Planner Agent produces a chapter-by-chapter conversion plan
-Act:      Tool Executor calls yt-dlp, ffmpeg, OCR as directed
-Observe:  Content Analyzer reviews the results and flags issues
-Reflect:  If a frame is blurry or OCR failed, the agent retries with different parameters
+```text
+RuntimeAdapter
+  → AppServerSession
+      → JsonRpcStdioClient → codex app-server
+      → EventProjector
+  → SessionDB
 ```
 
-This loop runs until the agent determines the output meets quality standards — or it surfaces a failure to the user with a clear explanation.
+- `JsonRpcStdioClient` owns newline-delimited JSON-RPC and subprocess I/O.
+- `AppServerSession` owns initialize/thread/turn lifecycle, approvals, watchdogs, interruption, and retirement.
+- `EventProjector` maps completed Codex events to persistent message objects.
+- `RuntimeAdapter` persists the user message before a turn and projected messages afterward, and retries once with a new session after retirement.
+- The default approval policy declines requests unless the host supplies a callback.
 
----
+## Configuration sources
 
-## Self-Critique Mechanism
+| Configuration | Source |
+|---|---|
+| runtime, video, ASR, document, and agent settings | `settings.toml` via cached `framelearn.config` |
+| API and OSS credentials | `.env` / process environment |
+| text API provider/model/base URL | `TEXT_*` environment variables |
+| document vision provider/model | `runtime.vision_*` in `settings.toml` |
+| Codex model/authentication | local Codex CLI configuration |
 
-After the Document Generator produces a draft, a separate critique pass runs:
+`load_config()` loads `.env` into the process environment but does not merge those keys into the returned TOML dictionary.
 
-- Are all chapters from the plan covered?
-- Are there any sections with no screenshots?
-- Are any code blocks incomplete or cut off?
+## Output and cache
 
-If issues are found, the agent goes back and fills the gaps before returning the final output.
-
----
-
-## Technology Choices
-
-**Claude API (Anthropic)**
-Used for planning, content analysis, document generation, and QA. Claude's vision capability handles frame analysis; its tool use capability drives the agent loop.
-
-**yt-dlp**
-Supports both YouTube and Bilibili with a unified interface. Handles auth, rate limiting, and format selection automatically.
-
-**ffmpeg**
-Industry-standard video processing. Used for frame extraction, scene change detection, and thumbnail generation.
-
-**Tesseract / pytesseract**
-Extracts text from frames where OCR is needed — particularly for code that Claude's vision might misread due to font rendering.
-
-**LangChain**
-Provides the tool-calling scaffolding and agent loop infrastructure so the focus stays on FrameLearn's logic rather than boilerplate.
-
-**uv**
-Dependency management. Faster than pip, deterministic installs via `uv.lock`.
-
----
-
-## Data Flow Diagram
-
-```
-┌─────────────┐
-│  Video URL  │
-└──────┬──────┘
-       │
-       ▼
-┌─────────────────┐     ┌──────────────┐
-│  Planner Agent  │────▶│  Claude API  │
-│  (sample frames)│     └──────────────┘
-└──────┬──────────┘
-       │ conversion plan
-       ▼
-┌─────────────────┐     ┌──────────────┐
-│  Tool Executor  │────▶│  yt-dlp      │
-│                 │────▶│  ffmpeg      │
-│                 │────▶│  Tesseract   │
-└──────┬──────────┘     └──────────────┘
-       │ frames + OCR text
-       ▼
-┌──────────────────┐    ┌──────────────┐
-│ Content Analyzer │───▶│  Claude API  │
-│ (key frame select│    └──────────────┘
-└──────┬───────────┘
-       │ selected frames
-       ▼
-┌──────────────────┐    ┌──────────────┐
-│ Doc Generator    │───▶│  Claude API  │
-└──────┬───────────┘    └──────────────┘
-       │
-       ▼
-┌──────────────────┐
-│  tutorial.md     │
-└──────┬───────────┘
-       │
-       ▼
-┌──────────────────┐    ┌──────────────┐
-│   QA Module      │◀──▶│  Claude API  │
-│ (user questions) │    └──────────────┘
-└──────────────────┘
+```text
+output/<video-stem>/
+├── index.md
+├── notes.md
+├── src/
+│   ├── subtitle.txt
+│   ├── subtitle.srt
+│   └── frame_HHhMMmSSs.jpg
+├── segments_<mode>/
+└── temp/
 ```
 
----
+Caches are existence-based and do not include hashes of the source video, configuration, prompt, or model. Changing those inputs may still reuse old subtitle, frame, or segment files unless the relevant cache is removed manually.
 
-## Directory Structure
+## Verification boundary
 
-```
-framelearn/
-├── README.md
-├── pyproject.toml
-├── uv.lock
-├── docs/
-│   └── architecture.md        # this file
-├── framelearn/
-│   ├── __init__.py
-│   ├── planner.py             # Planner Agent
-│   ├── executor.py            # Tool Executor
-│   ├── analyzer.py            # Content Analyzer
-│   ├── generator.py           # Document Generator
-│   ├── qa.py                  # QA Module
-│   └── tools/
-│       ├── downloader.py      # yt-dlp wrapper
-│       ├── extractor.py       # ffmpeg wrapper
-│       └── ocr.py             # Tesseract wrapper
-└── output/                    # generated tutorials go here
-```
+The test suite covers routing, cleaning, splitter behavior, provider mocks, prompt selection, quality retries, keyframe-selection logic, and app-server protocol/persistence. It does not provide online integration tests for real videos, DashScope/OSS, the Vision API, or a complete end-to-end run.

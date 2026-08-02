@@ -2,148 +2,158 @@
 
 [English](README.en.md) | 中文
 
-将编程教学视频自动转换为结构化图文教材。提取音频、转写字幕、抽取关键帧，用 LLM 生成可独立学习的 Markdown 教材，遇到不懂的地方随时向 AI 提问。
+FrameLearn 将本地编程教学视频转换为带关键帧的 Markdown 学习材料。当前实现覆盖音轨提取、ASR、字幕清洗、关键帧抽取/去重、按时间分段生成，以及基于 Codex app-server 的通用问答。
 
-## 它能做什么
+## 当前能力
 
-1. **转录**：提取视频音轨，通过硅基流动 SenseVoice 或阿里云百炼转录为带时间戳的字幕
-2. **抽帧**：FFmpeg 场景检测 + 定时保底抽帧，感知哈希去重；可选 LLM Agent 精选有价值的帧
-3. **生成**：关键帧 + 字幕分段送给 LLM，输出三种风格的 Markdown 教材
-4. **问答**：生成教材后，随时针对视频内容向 AI 提问
+- 处理本地 `.mp4`、`.mkv`、`.avi`、`.mov`、`.flv`、`.wmv`、`.webm` 视频。
+- 自动识别视频内音轨；若 B 站下载文件音视频分离，会在同目录查找同前缀的 `.mp3`、`.m4a` 或 `.aac`。
+- ASR 支持：
+  - 阿里云百炼 DashScope：长音频分片、OSS 临时上传、异步转写、断点记录和 SRT 时间戳。
+  - 硅基流动 SenseVoice：实现简单，但不返回时间戳。
+- 可通过 `--subtitle` 直接使用已有 `.txt`、`.srt` 或 `.vtt`，跳过 ASR。
+- FFmpeg 场景检测与固定间隔抽帧同时执行，再用 pHash 去重。
+- 长字幕或关键帧较多时自动按段生成并缓存，可中断后复用已生成段落。
+- 每次运行固定生成 `notes.md`，并按配置生成 `index.md`（`visual_script`、`notes` 或 `textbook`）。
+- `ask` 可通过 Codex app-server 或兼容 API 回答通用问题。
 
-## 输出格式
+## 尚未实现或受限的能力
 
-```
-output/视频名称/
-  index.md               # 主教材（章节结构、要点、代码示例、关键帧引用）
-  src/
-    frame_00h01m30s.jpg  # 关键帧（时间戳命名）
-    frame_00h03m15s.jpg
-    subtitle.txt         # 清洗后字幕文本
-```
+- YouTube/Bilibili URL 会被识别和校验，但在线下载尚未实现；请先下载到本地。
+- `summarize` 只打印外部 `/summarize-learning` skill 的使用提示，不会在 FrameLearn 内生成总结。
+- `ask` 当前不是“只检索已生成教材”的 RAG 问答；它是工作目录中的通用 Codex/API 对话。
+- 当前 FrameLearn 的 app-server `turn/start` 只发送文字。文档生成若要让模型看到关键帧，应使用 `runtime.vision_mode = "api"`。
+- Agent 关键帧选择为实验功能。API 图像评估路径目前引用了尚不存在的 `ProviderAdapter` 类；保持默认关闭。
 
-## 快速上手
+## 安装
 
-### 1. 安装依赖
+要求 Python 3.11+、[uv](https://docs.astral.sh/uv/) 和 FFmpeg（包含 `ffprobe`）。
 
 ```bash
-# 安装 FFmpeg（必需）
-brew install ffmpeg       # macOS
-# apt install ffmpeg      # Ubuntu
-
-# 安装 Python 依赖
+brew install ffmpeg
 uv sync
 ```
 
-### 2. 配置
+注意：源码还直接导入 Pillow、ImageHash 和 `oss2`。如果当前锁文件没有安装这些包，需要补装后再运行对应功能：
 
-复制 `.env.example` 为 `.env`，填入 API Key：
+```bash
+uv add pillow imagehash oss2
+```
+
+## 配置
+
+复制环境变量模板：
 
 ```bash
 cp .env.example .env
 ```
 
-最少配置：
-
-```bash
-# ASR 语音识别（硅基流动，国内直接访问）
-SILICONFLOW_API_KEY=your_siliconflow_key_here
-
-# Vision/文字模型（api 模式下需要；appserver 模式复用本地 Codex 会话，无需 key）
-DEEPSEEK_API_KEY=your_deepseek_key_here
-```
-
-`settings.toml` 控制运行参数：
+当前仓库 `settings.toml` 的默认路径是：
 
 ```toml
 [runtime]
-vision_mode = "appserver"   # appserver（复用 Codex）或 api（直接调用）
-asr_provider = "siliconflow"
+text_mode = "appserver"
+vision_mode = "api"
+vision_provider = "siliconflow"
+vision_model = "Qwen/Qwen3.6-35B-A3B"
+
+[asr]
+provider = "dashscope"
+model = "qwen-audio-3.0-asr-flash-filetrans"
 
 [doc_generation]
-mode = "visual_script"      # visual_script | notes | textbook
-segment_duration = 90       # 每段时长（秒）
+mode = "visual_script"
+segment_duration = 90
+max_keyframes_per_segment = 10
 
 [agent]
-keyframe_selection = false  # true = LLM 精选关键帧（更准，更慢）
-quality_review = false      # true = 生成后 LLM 评审质量并重试
+keyframe_selection = false
+quality_review = false
 ```
 
-### 3. 运行
+使用默认配置至少需要：
 
 ```bash
-# 自然语言（推荐）
-framelearn "处理这个视频 /path/to/tutorial.mp4"
-framelearn "第 3 章讲了什么"
-
-# 传统命令
-framelearn run /path/to/tutorial.mp4
-framelearn ask "为什么要用虚拟环境"
-framelearn summarize
+DASHSCOPE_API_KEY=...
+OSS_ACCESS_KEY_ID=...
+OSS_ACCESS_KEY_SECRET=...
+SILICONFLOW_API_KEY=...
 ```
 
-## B 站视频说明
+- DashScope 读取 `[asr]` 和 `[asr.oss]` 配置。
+- Vision API 的 provider/model 读取 `settings.toml`，密钥读取 `.env`。
+- `text_mode = "appserver"` 需要本机已安装并配置 `codex` CLI。
 
-B 站下载的视频通常是音视频分离的两个文件：
+完整字段见 [`settings.toml`](settings.toml) 和 [`.env.example`](.env.example)。
 
-```
-tutorial-30080.mp4   # 视频流（无音轨）
-tutorial-30280.mp3   # 音频流
-```
+## 使用
 
-FrameLearn 自动检测并配对同目录下的伴随音频，无需手动合并。
+```bash
+# 本地视频
+framelearn run /absolute/path/tutorial.mp4
 
-## 文档风格
+# 使用已有字幕，跳过 ASR
+framelearn run /absolute/path/tutorial.mp4 --subtitle /absolute/path/tutorial.srt
 
-通过 `doc_generation.mode` 选择：
+# 自然语言入口
+framelearn "处理这个视频 /absolute/path/tutorial.mp4"
 
-| 模式 | 说明 |
-|------|------|
-| `visual_script` | 顺序图文讲稿，保留讲解顺序，适合跟着视频复习 |
-| `notes` | 课堂笔记风格，bullet points，快速浏览 |
-| `textbook` | 正式教材，按知识点重排，系统学习 |
+# 通用问答
+framelearn ask "解释一下这个项目的结构"
 
-## 架构
-
-```
-用户输入
-  ↓
-CommandParser（意图识别）
-  ↓
-CommandRouter（命令路由）
-  ↓
-VideoPipeline
-  ├── FFmpegHelper          音轨提取 + 关键帧抽取
-  ├── ASRAdapter            语音转文字（硅基流动 / 百炼）
-  ├── SubtitleCleaner       字幕清洗
-  ├── KeyframeDeduplicator  感知哈希去重
-  ├── AgentKeyframeSelector LLM 精选关键帧（可选）
-  ├── SegmentSplitter       按时长切段 + 分配关键帧
-  └── DocumentGenerator     生成 Markdown 教材（支持质量评审重试）
+# 无参数时进入 REPL
+framelearn
 ```
 
-## 技术栈
+传统命令包括 `run`、`ask`、`summarize`、`help`。自然语言解析优先使用有效的 `TEXT_PROVIDER` + `TEXT_API_KEY`；没有时使用本地规则，将多数非视频请求路由为 `ask`。
 
-| 用途 | 工具 |
-|------|------|
-| 音视频处理 | FFmpeg |
-| 语音识别 | 硅基流动 FunAudioLLM/SenseVoiceSmall 或阿里云百炼 Qwen-Audio |
-| 视觉 / 文字分析 | Codex app-server 或直接 Vision API（DeepSeek / Qwen） |
-| 关键帧去重 | imagehash（感知哈希 pHash） |
-| 配置管理 | settings.toml + .env |
-| 运行时 | Python 3.11+，uv |
+## 实际输出
+
+```text
+output/<视频文件名>/
+├── index.md                       # doc_generation.mode 指定的主文档
+├── notes.md                       # 每次额外生成的笔记版
+├── src/
+│   ├── subtitle.txt               # 清洗后的纯文本
+│   ├── subtitle.srt               # ASR/输入提供 SRT 时存在
+│   └── frame_00h01m30s.jpg        # 带整秒时间戳的关键帧
+├── segments_<mode>/               # 触发分段生成时的段落缓存
+└── temp/                          # DashScope 临时切片；是否保留由 asr.keep_temp_files 控制
+```
+
+缓存会影响重跑：已有 `subtitle.srt` + `subtitle.txt` 会跳过 ASR，已有 `frame_*.jpg` 会跳过抽帧，已有分段 Markdown 会跳过对应 LLM 调用。如需完全重跑，应先备份并删除对应缓存。
+
+## 处理链路
+
+```text
+CLI / REPL
+  → CommandParser
+  → CommandRouter
+  → VideoPipeline
+      → 已有字幕，或 FFmpeg 提取音轨 → ASRAdapter
+      → SubtitleCleaner
+      → FFmpegHelper 抽帧
+      → KeyframeDeduplicator
+      → 可选 AgentKeyframeSelector
+      → DocumentGenerator
+          → 短内容单次生成
+          → 长内容 SegmentSplitter 分段、缓存、重试、合并
+```
 
 ## 测试
 
 ```bash
-uv run pytest test/ -v
+uv run pytest
 ```
 
 ## 文档
 
-- [技术架构](docs/architecture.md)
-- [视频流水线设计](openspec/changes/video-pipeline/design.md)
+- [文档索引与状态](docs/README.md)
+- [当前技术架构](docs/architecture.md)
+- [流水线实现说明](docs/pipeline-overview.md)
+- [AntiVibe 技术报告](docs/antivibe-technical-report.md)
+- [Codex app-server 指南](docs/codex-app-server-guide.md)
 
-## 开源协议
+## License
 
 MIT

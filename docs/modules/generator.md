@@ -1,5 +1,7 @@
 # 文档生成器接口设计
 
+> 状态：历史目标设计。当前实现是 `framelearn/pipeline/doc_generator.py`，输入为字幕与 `(Path, timestamp)` 关键帧，输出 `index.md`、`notes.md` 和可选分段缓存；没有本文所述 `AnalyzedChapter`/时间戳链接接口。请以 [`../pipeline-overview.md`](../pipeline-overview.md) 为准。
+
 ## 职责
 
 接收内容分析器输出的"关键帧 + 对应文字稿"配对，生成完整的 Markdown 教材。

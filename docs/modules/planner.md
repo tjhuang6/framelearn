@@ -1,5 +1,7 @@
 # 规划 Agent 接口设计
 
+> 状态：历史目标设计，当前未实现。仓库中没有 `PlannerAgent`、`PlannerInput` 或 `ConversionPlan`；当前流水线从 `VideoPipeline` 开始。请以 [`../architecture.md`](../architecture.md) 为准。
+
 ## 职责
 
 分析视频采样帧，识别视频结构（章节划分），输出转换计划供后续模块使用。

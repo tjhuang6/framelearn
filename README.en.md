@@ -2,132 +2,151 @@
 
 [中文](README.md) | English
 
-An AI agent that converts programming tutorial videos into structured Markdown tutorials — so you can learn at your own pace and ask AI questions when you get stuck.
+FrameLearn converts local programming tutorial videos into Markdown learning material with timestamped keyframes. The current implementation covers audio extraction, ASR, subtitle cleaning, frame extraction/deduplication, time-based segmented generation, and general-purpose Q&A through Codex app-server.
 
-## What It Does
+## Current capabilities
 
-1. **Transcribes**: Extracts audio and transcribes via SiliconFlow SenseVoice
-2. **Extracts frames**: FFmpeg scene detection + fallback timing, deduplicated with perceptual hashing
-3. **Generates**: Keyframes + subtitles → structured Markdown tutorial via GPT / Claude
-4. **Q&A**: Ask questions about the video content at any time
+- Processes local `.mp4`, `.mkv`, `.avi`, `.mov`, `.flv`, `.wmv`, and `.webm` files.
+- Uses the video's audio stream or finds a companion `.mp3`, `.m4a`, or `.aac` file for split Bilibili downloads.
+- Supports two ASR backends:
+  - Aliyun DashScope for chunked long-audio transcription, OSS upload, async polling, checkpoints, and SRT timestamps.
+  - SiliconFlow SenseVoice for simpler transcription without timestamps.
+- Accepts an existing `.txt`, `.srt`, or `.vtt` file through `--subtitle` to skip ASR.
+- Combines FFmpeg scene detection and fixed-interval frames, then deduplicates with perceptual hashing.
+- Automatically segments and caches generation for long subtitles or large frame sets.
+- Always produces `notes.md` and also produces `index.md` in the configured `visual_script`, `notes`, or `textbook` mode.
+- Routes `ask` through Codex app-server or a compatible text API.
 
-## Output Format
+## Current limitations
 
-```
-output/video-name/
-  index.md          # Tutorial (chapters, key points, code examples, frame references)
-  src/
-    frame_001.jpg   # Keyframe screenshots
-    frame_002.jpg
-    ...
-    subtitle.txt    # Cleaned subtitle text
-```
+- YouTube and Bilibili URLs are validated, but downloading is not implemented. Download the video first.
+- `summarize` only prints instructions for an external `/summarize-learning` skill.
+- `ask` is a general workspace conversation, not a tutorial-grounded RAG implementation.
+- FrameLearn's current app-server turn sends text only. Use `runtime.vision_mode = "api"` when document generation must inspect image pixels.
+- Agent keyframe selection is experimental. Its API image-evaluation branch references a `ProviderAdapter` class that does not currently exist; keep it disabled.
 
-## Quickstart
+## Install
 
-### 1. Install dependencies
+Python 3.11+, [uv](https://docs.astral.sh/uv/), FFmpeg, and `ffprobe` are required.
 
 ```bash
-# Install FFmpeg (required)
-brew install ffmpeg          # macOS
-# apt install ffmpeg         # Ubuntu
-
-# Install Python dependencies
+brew install ffmpeg
 uv sync
 ```
 
-### 2. Configure
+The source also imports Pillow, ImageHash, and `oss2`. If they are absent from your environment, add them before using the related features:
 
-Copy `.env.example` to `.env` and fill in your API keys:
+```bash
+uv add pillow imagehash oss2
+```
+
+## Configure
 
 ```bash
 cp .env.example .env
 ```
 
-Minimum required:
-
-```bash
-# Text / vision model (via Codex app-server, no extra key needed)
-# Or configure a direct API key
-TEXT_PROVIDER=deepseek
-TEXT_API_KEY=your_deepseek_key_here
-
-# ASR speech-to-text (SiliconFlow, accessible from mainland China)
-SILICONFLOW_API_KEY=your_siliconflow_key_here
-```
-
-Runtime mode and video parameters are configured in `settings.toml`:
+The repository's current `settings.toml` defaults are:
 
 ```toml
 [runtime]
-text_mode = "appserver"   # appserver (via Codex) or api (direct call)
-vision_mode = "appserver"
+text_mode = "appserver"
+vision_mode = "api"
+vision_provider = "siliconflow"
+vision_model = "Qwen/Qwen3.6-35B-A3B"
 
-[video]
-output_dir = "./output"
-scene_threshold = 0.3     # Scene change sensitivity
-max_keyframes = 100
+[asr]
+provider = "dashscope"
+model = "qwen-audio-3.0-asr-flash-filetrans"
+
+[doc_generation]
+mode = "visual_script"
+segment_duration = 90
+max_keyframes_per_segment = 10
+
+[agent]
+keyframe_selection = false
+quality_review = false
 ```
 
-### 3. Run
+With those defaults, configure at least:
 
 ```bash
-# Natural language (recommended)
-framelearn "Process this video /path/to/tutorial.mp4"
-framelearn "What does chapter 3 cover?"
-
-# Traditional command format
-framelearn run /path/to/tutorial.mp4
-framelearn ask "Why use a virtual environment?"
-framelearn summarize
-framelearn help
+DASHSCOPE_API_KEY=...
+OSS_ACCESS_KEY_ID=...
+OSS_ACCESS_KEY_SECRET=...
+SILICONFLOW_API_KEY=...
 ```
 
-## Bilibili Videos
+`text_mode = "appserver"` also requires an installed and configured `codex` CLI. See [`settings.toml`](settings.toml) and [`.env.example`](.env.example) for all fields.
 
-Bilibili downloads often split video and audio into separate files:
+## Run
 
-```
-tutorial-30080.mp4   # Video stream (no audio)
-tutorial-30280.mp3   # Audio stream
-```
+```bash
+# Local video
+framelearn run /absolute/path/tutorial.mp4
 
-FrameLearn automatically detects and pairs companion audio files in the same directory — no manual merging needed.
+# Reuse an existing subtitle and skip ASR
+framelearn run /absolute/path/tutorial.mp4 --subtitle /absolute/path/tutorial.srt
 
-## Architecture
+# Natural-language entry point
+framelearn "Process this video /absolute/path/tutorial.mp4"
 
-```
-User input
-  ↓
-CommandParser (natural language intent recognition)
-  ↓
-CommandRouter (command dispatch)
-  ↓
-VideoPipeline
-  ├── FFmpegHelper      Audio extraction + keyframe extraction
-  ├── ASRAdapter        Speech-to-text (SiliconFlow SenseVoice)
-  ├── SubtitleCleaner   Subtitle cleaning (ported from Bilitato)
-  ├── KeyframeDedup     Perceptual hash deduplication
-  └── DocumentGenerator Markdown tutorial generation
+# General-purpose workspace Q&A
+framelearn ask "Explain this project architecture"
+
+# Start the interactive REPL
+framelearn
 ```
 
-## Tech Stack
+Traditional commands are `run`, `ask`, `summarize`, and `help`. Natural-language parsing uses `TEXT_PROVIDER` + `TEXT_API_KEY` when valid; otherwise it applies local rules and routes most non-video requests to `ask`.
 
-| Purpose | Tool |
-|---------|------|
-| Audio/video processing | FFmpeg |
-| Speech recognition | SiliconFlow FunAudioLLM/SenseVoiceSmall |
-| Vision / text analysis | Codex app-server (GPT-5.6) or direct API |
-| Keyframe deduplication | imagehash (perceptual hashing) |
-| Configuration | settings.toml + .env |
-| Runtime | Python 3.11+, uv |
+## Actual output
 
-## Docs
+```text
+output/<video-stem>/
+├── index.md
+├── notes.md
+├── src/
+│   ├── subtitle.txt
+│   ├── subtitle.srt               # when timestamped SRT is available
+│   └── frame_00h01m30s.jpg
+├── segments_<mode>/               # generated for segmented runs
+└── temp/                          # DashScope chunks when configured to keep them
+```
 
-- [Technical Architecture](docs/architecture.md)
-- [Video Pipeline Design](openspec/changes/video-pipeline/design.md)
-- [Bilitato Migration Decisions](docs/decisions/bilitato-to-framelearn.md)
-- [App-Server Multimodal Pipeline](docs/app-server-video-multimodal-pipeline.md)
+Existing subtitle, frame, and segment files act as caches. Remove the relevant cache only when you intentionally want a full rerun.
+
+## Pipeline
+
+```text
+CLI / REPL
+  → CommandParser
+  → CommandRouter
+  → VideoPipeline
+      → existing subtitle, or FFmpeg audio extraction → ASRAdapter
+      → SubtitleCleaner
+      → FFmpegHelper
+      → KeyframeDeduplicator
+      → optional AgentKeyframeSelector
+      → DocumentGenerator
+          → one-shot generation for small inputs
+          → SegmentSplitter + cache + retry + merge for large inputs
+```
+
+## Test
+
+```bash
+uv run pytest
+```
+
+## Documentation
+
+- [Documentation status](docs/README.md)
+- [Current architecture](docs/architecture.en.md)
+- [Pipeline implementation](docs/pipeline-overview.md)
+- [AntiVibe technical report (Chinese)](docs/antivibe-technical-report.md)
+- [Codex app-server guide (Chinese)](docs/codex-app-server-guide.md)
 
 ## License
 

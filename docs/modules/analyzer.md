@@ -1,5 +1,7 @@
 # 内容分析器接口设计
 
+> 状态：历史目标设计，当前未实现。仓库没有 OCR `ContentAnalyzer`；当前关键帧由 FFmpeg 场景/定时采样、pHash 去重和可选 `AgentKeyframeSelector` 处理。请以 [`../architecture.md`](../architecture.md) 为准。
+
 ## 职责
 
 接收全量阶段提取的帧和 OCR 文字，判断哪些帧值得纳入教材，并将关键帧与 Whisper 文字稿按时间戳对齐。输出"帧 + 对应文字稿片段"的配对列表，供文档生成器使用。

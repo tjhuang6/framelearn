@@ -1,5 +1,7 @@
 # OpenSpec: 视频顺序讲稿生成（分段 + visual_script 模式）
 
+> 状态：实施前规格，现保留用于追溯。`visual_script`、按 SRT/字数分段、段落缓存和逐段生成已经进入 `DocumentGenerator`，但具体类名、触发条件、重试和输出以 [`pipeline-overview.md`](pipeline-overview.md) 为准；本文中的“当前问题”和成本估算已不代表当前代码。
+
 ## 目标
 
 解决当前问题：
