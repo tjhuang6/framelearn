@@ -158,8 +158,6 @@ class AgentKeyframeSelector:
 
     def _evaluate(self, frame_path: Path, context: str) -> KeyframeEvaluation:
         """Ask LLM: is this frame worth keeping, using both image and subtitle context."""
-        import base64
-
         prompt = (
             f"视频关键帧（对应字幕：\"{context[:200]}\"）\n\n"
             "结合画面内容和字幕，判断这张截图是否值得保留在教材中：\n"
@@ -172,10 +170,7 @@ class AgentKeyframeSelector:
         )
 
         try:
-            with open(frame_path, "rb") as f:
-                img_b64 = base64.b64encode(f.read()).decode("utf-8")
-
-            response = self._call_vision_llm(prompt, img_b64)
+            response = self._call_vision_llm(prompt, frame_path)
             data = json.loads(response.strip())
             return KeyframeEvaluation(
                 keep=bool(data.get("keep", True)),
@@ -217,7 +212,7 @@ class AgentKeyframeSelector:
             from framelearn.provider_adapter import call_text_llm
             return call_text_llm(prompt, max_tokens=200)
 
-    def _call_vision_llm(self, prompt: str, img_b64: str) -> str:
+    def _call_vision_llm(self, prompt: str, frame_path: Path) -> str:
         """Call vision LLM with text + image."""
         if self.vision_mode == "appserver":
             from framelearn.app_server.session import AppServerSession
@@ -226,16 +221,30 @@ class AgentKeyframeSelector:
             session.close()
             return result.final_text or ""
         else:
-            from framelearn.provider_adapter import ProviderAdapter
-            adapter = ProviderAdapter()
-            content = [
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {
-                    "url": f"data:image/jpeg;base64,{img_b64}"
-                }},
-            ]
-            return adapter.chat(
-                messages=[{"role": "user", "content": content}],
+            import os
+
+            from framelearn.provider_adapter import PROVIDERS, ProviderConfig, call_llm
+
+            provider_def = PROVIDERS.get(self.vision_provider)
+            if not provider_def:
+                raise ValueError(f"Unknown vision_provider: '{self.vision_provider}'")
+
+            if self.vision_provider == "siliconflow":
+                api_key = os.getenv("SILICONFLOW_API_KEY", "")
+                base_url = os.getenv("SILICONFLOW_BASE_URL", provider_def["base_url"])
+            else:
+                api_key = os.getenv("VISION_API_KEY", "")
+                base_url = os.getenv("VISION_BASE_URL", provider_def["base_url"])
+
+            config = ProviderConfig(
                 provider=self.vision_provider,
+                api_key=api_key,
                 model=self.vision_model,
+                base_url=base_url,
+            )
+            return call_llm(
+                prompt,
+                config,
+                images=[str(frame_path)],
+                max_tokens=200,
             )

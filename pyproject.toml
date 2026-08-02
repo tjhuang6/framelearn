@@ -6,6 +6,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "httpx>=0.27.0",
+    "imagehash>=4.3.2",
+    "oss2>=2.19.1",
+    "pillow>=12.3.0",
     "python-dotenv>=1.0.0",
 ]
 

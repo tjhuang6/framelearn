@@ -98,12 +98,39 @@ class TestLLMDecision:
         assert ev.keep is False
 
     def test_evaluate_llm_failure_defaults_keep(self, tmp_path):
-        """评估失败时默认保留（不丢帧）。"""
+        """视觉与文字评估都失败时默认保留（不丢帧）。"""
         frame = tmp_path / "frame.jpg"
         frame.write_bytes(b"\xff\xd8\xff\xd9")
         self.sel._call_vision_llm = Mock(side_effect=Exception("timeout"))
+        self.sel._call_text_llm = Mock(side_effect=Exception("timeout"))
         ev = self.sel._evaluate(frame, "看图")
         assert ev.keep is True
+
+    def test_api_vision_call_uses_existing_provider_function(self, tmp_path):
+        """API 模式应按 selector 配置通过 call_llm 发送真实图片路径。"""
+        frame = tmp_path / "frame.jpg"
+        frame.write_bytes(b"\xff\xd8\xff\xd9")
+        self.sel.vision_mode = "api"
+        self.sel.vision_provider = "siliconflow"
+        self.sel.vision_model = "Qwen/test-vision"
+
+        with patch.dict("os.environ", {"SILICONFLOW_API_KEY": "sk-test-key"}):
+            with patch(
+                "framelearn.provider_adapter.call_llm",
+                return_value='{"keep": true, "reason": "代码画面"}',
+            ) as mock_call:
+                response = self.sel._call_vision_llm("判断图片", frame)
+
+        assert json.loads(response)["keep"] is True
+        prompt, config = mock_call.call_args.args
+        assert prompt == "判断图片"
+        assert config.provider == "siliconflow"
+        assert config.model == "Qwen/test-vision"
+        assert config.api_key == "sk-test-key"
+        assert mock_call.call_args.kwargs == {
+            "images": [str(frame)],
+            "max_tokens": 200,
+        }
 
 
 # ------------------------------------------------------------------
