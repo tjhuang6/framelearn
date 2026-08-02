@@ -358,17 +358,12 @@ class DocumentGenerator:
         # Build text prompt
         text_prompt = self._build_prompt(keyframes, subtitle, mode)
 
-        # Encode keyframes to base64
-        images: list[str] = []
+        # Collect valid keyframe paths (as strings for encode_image)
+        image_paths: list[str] = []
         for frame_path, _ in keyframes:
             if not frame_path.exists():
                 continue
-            try:
-                with open(frame_path, "rb") as f:
-                    img_data = base64.b64encode(f.read()).decode("utf-8")
-                images.append(img_data)
-            except Exception as e:
-                print(f"⚠️  无法读取关键帧 {frame_path.name}：{e}")
+            image_paths.append(str(frame_path))
 
         # Build config from settings.toml (overrides env vars)
         provider_key = config_get("runtime.vision_provider", "siliconflow")
