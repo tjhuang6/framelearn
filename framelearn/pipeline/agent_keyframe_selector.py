@@ -157,23 +157,23 @@ class AgentKeyframeSelector:
             )
 
     def _evaluate(self, frame_path: Path, context: str) -> KeyframeEvaluation:
-        """Ask LLM: is this frame worth keeping?"""
-        import base64
+        """Decide if this frame is worth keeping based on subtitle context.
 
+        Uses text LLM only (no image) — the decision is based on what the
+        teacher said, not what the frame looks like. This avoids vision model
+        timeout and is fast enough for batch processing.
+        """
         prompt = (
-            f"视频关键帧（对应字幕：\"{context[:100]}\"）\n\n"
-            "这张图有教学价值吗？\n"
-            "- PPT、代码、终端、图表 → 保留\n"
-            "- 讲师人脸、空白屏、过渡动画 → 丢弃\n\n"
+            f"视频片段的字幕内容：\n\"{context[:200]}\"\n\n"
+            "根据这段字幕，判断此时的画面是否值得截图保留在教材中：\n"
+            "- 字幕提到代码、PPT、图表、终端命令、具体操作 → 保留\n"
+            "- 字幕只是纯口头讲解、过渡语句、寒暄或背景介绍 → 丢弃\n\n"
             "返回 JSON（只返回 JSON，不要其他内容）：\n"
             "{\"keep\": true/false, \"reason\": \"理由\"}"
         )
 
         try:
-            with open(frame_path, "rb") as f:
-                img_b64 = base64.b64encode(f.read()).decode("utf-8")
-
-            response = self._call_vision_llm(prompt, img_b64)
+            response = self._call_text_llm(prompt)
             data = json.loads(response.strip())
             return KeyframeEvaluation(
                 keep=bool(data.get("keep", True)),
