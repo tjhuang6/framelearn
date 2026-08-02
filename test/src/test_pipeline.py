@@ -261,52 +261,50 @@ class TestDocumentGenerator:
         frame = tmp_path / "frame.jpg"
         frame.touch()
 
-        with patch('framelearn.app_server.session.AppServerSession') as mock_session:
-            mock_instance = Mock()
-            mock_result = Mock()
-            mock_result.error = None
-            mock_result.final_text = "# 教材\n完整段落..."
-            mock_result.written_files = []
-            mock_instance.run_turn.return_value = mock_result
-            mock_session.return_value = mock_instance
+        captured_prompt = {}
 
-            gen = DocumentGenerator()
-            result = gen.generate([(frame, 0.0)], "字幕内容", "测试", mode="textbook")
+        def fake_generate(keyframes, subtitle, mode, model_override=None):
+            # Capture the prompt that would be sent
+            from framelearn.pipeline.doc_generator import DocumentGenerator as DG, DocMode
+            gen_inner = DG.__new__(DG)
+            captured_prompt["text"] = gen_inner._build_prompt(keyframes, subtitle, DocMode(mode))
+            return "# 教材\n完整段落..."
 
-            assert "教材" in result
-            call_args = mock_instance.run_turn.call_args[0][0]
-            assert "技术图书编辑" in call_args
+        gen = DocumentGenerator()
+        gen._generate_single = fake_generate
+        result = gen.generate([(frame, 0.0)], "字幕内容", "测试", mode="textbook")
+
+        assert "教材" in result
+        assert "技术图书编辑" in captured_prompt["text"]
 
     def test_mode_notes_uses_correct_prompt(self, tmp_path):
         frame = tmp_path / "frame.jpg"
         frame.touch()
 
-        with patch('framelearn.app_server.session.AppServerSession') as mock_session:
-            mock_instance = Mock()
-            mock_result = Mock()
-            mock_result.error = None
-            mock_result.final_text = "## 知识点\n- 要点1\n- 要点2"
-            mock_result.written_files = []
-            mock_instance.run_turn.return_value = mock_result
-            mock_session.return_value = mock_instance
+        captured_prompt = {}
 
-            gen = DocumentGenerator()
-            result = gen.generate([(frame, 0.0)], "字幕内容", "测试", mode="notes")
+        def fake_generate(keyframes, subtitle, mode, model_override=None):
+            from framelearn.pipeline.doc_generator import DocumentGenerator as DG, DocMode
+            gen_inner = DG.__new__(DG)
+            captured_prompt["text"] = gen_inner._build_prompt(keyframes, subtitle, DocMode(mode))
+            return "## 知识点\n- 要点1\n- 要点2"
 
-            assert "知识点" in result
-            call_args = mock_instance.run_turn.call_args[0][0]
-            assert "课堂笔记整理助手" in call_args
+        gen = DocumentGenerator()
+        gen._generate_single = fake_generate
+        result = gen.generate([(frame, 0.0)], "字幕内容", "测试", mode="notes")
+
+        assert "知识点" in result
+        assert "课堂笔记整理助手" in captured_prompt["text"]
 
     def test_generate_error_raises(self, tmp_path):
         frame = tmp_path / "frame.jpg"
         frame.touch()
 
-        with patch('framelearn.app_server.session.AppServerSession') as mock_session:
-            mock_instance = Mock()
-            mock_result = Mock()
-            mock_result.error = "API failed"
-            mock_result.written_files = []
-            mock_instance.run_turn.return_value = mock_result
+        def fake_generate(keyframes, subtitle, mode, model_override=None):
+            raise RuntimeError("API failed")
+
+        gen = DocumentGenerator()
+        gen._generate_single = fake_generate
             mock_session.return_value = mock_instance
 
             gen = DocumentGenerator()
