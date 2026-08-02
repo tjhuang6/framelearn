@@ -57,7 +57,7 @@ from framelearn.provider_adapter import ProviderAdapter
 1. 将真实 `Path` 传入 `_call_vision_llm()`，不再在 selector 内手动生成 base64；
 2. 从现有 `PROVIDERS` 中校验 `vision_provider`；
 3. 使用 selector 从 `settings.toml` 读取的 provider/model 构造 `ProviderConfig`；
-4. SiliconFlow 读取 `SILICONFLOW_API_KEY`/`SILICONFLOW_BASE_URL`；其他 provider 读取 `VISION_API_KEY`/`VISION_BASE_URL`；
+4. SiliconFlow 优先读取通用 `VISION_API_KEY`/`VISION_BASE_URL`，未配置时回退到 `SILICONFLOW_API_KEY`/`SILICONFLOW_BASE_URL`；其他 provider 读取通用 Vision 配置；
 5. 调用现有 `call_llm(prompt, config, images=[真实图片路径], max_tokens=200)`；
 6. 图片编码和各 provider 的多模态请求格式继续由统一 provider adapter 负责。
 
@@ -89,7 +89,7 @@ ImportError: cannot import name 'ProviderAdapter'
 
 - app-server 分支保持原行为，仍只发送文本；这属于原报告第 165 行之后的独立风险，不在本次范围内。
 - `_evaluate()` 仍保留失败后转为文字评估的降级策略，但 API 路径不再因为确定性的缺失类导入而必然降级。
-- 非 SiliconFlow provider 仍使用统一的 `VISION_API_KEY` 和 `VISION_BASE_URL` 约定。
+- SiliconFlow 与统一 provider adapter 保持同一环境变量契约：通用 `VISION_*` 优先，专用 `SILICONFLOW_*` 作为兼容别名。
 - 本补丁没有发起真实收费 Vision API 请求；网络协议通过 provider adapter 的既有单元边界和 mock 测试验证。
 
 ## 6. 变更文件

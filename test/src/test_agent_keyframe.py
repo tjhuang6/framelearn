@@ -132,6 +132,52 @@ class TestLLMDecision:
             "max_tokens": 200,
         }
 
+    def test_siliconflow_accepts_generic_vision_credentials(self, tmp_path):
+        """SiliconFlow 应兼容统一的 VISION_API_KEY/VISION_BASE_URL。"""
+        from framelearn import provider_adapter
+
+        frame = tmp_path / "frame.jpg"
+        frame.write_bytes(b"\xff\xd8\xff\xd9")
+        self.sel.vision_mode = "api"
+        self.sel.vision_provider = "siliconflow"
+        self.sel.vision_model = "Qwen/test-vision"
+
+        env = {
+            "VISION_API_KEY": "sk-generic-key",
+            "VISION_BASE_URL": "https://vision.example/v1/",
+        }
+        with patch.dict("os.environ", env, clear=True):
+            with patch.object(provider_adapter, "call_llm", return_value="{}") as mock_call:
+                self.sel._call_vision_llm("判断图片", frame)
+
+        config = mock_call.call_args.args[1]
+        assert config.api_key == "sk-generic-key"
+        assert config.base_url == "https://vision.example/v1/"
+
+    def test_siliconflow_prefers_generic_vision_credentials(self, tmp_path):
+        """通用 Vision 配置应优先于 SiliconFlow 专用别名。"""
+        from framelearn import provider_adapter
+
+        frame = tmp_path / "frame.jpg"
+        frame.write_bytes(b"\xff\xd8\xff\xd9")
+        self.sel.vision_mode = "api"
+        self.sel.vision_provider = "siliconflow"
+        self.sel.vision_model = "Qwen/test-vision"
+
+        env = {
+            "VISION_API_KEY": "sk-generic-key",
+            "VISION_BASE_URL": "https://vision.example/v1/",
+            "SILICONFLOW_API_KEY": "sk-provider-key",
+            "SILICONFLOW_BASE_URL": "https://siliconflow.example/v1/",
+        }
+        with patch.dict("os.environ", env, clear=True):
+            with patch.object(provider_adapter, "call_llm", return_value="{}") as mock_call:
+                self.sel._call_vision_llm("判断图片", frame)
+
+        config = mock_call.call_args.args[1]
+        assert config.api_key == "sk-generic-key"
+        assert config.base_url == "https://vision.example/v1/"
+
 
 # ------------------------------------------------------------------
 # Full select() loop

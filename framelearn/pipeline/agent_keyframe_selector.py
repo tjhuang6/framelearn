@@ -230,8 +230,11 @@ class AgentKeyframeSelector:
                 raise ValueError(f"Unknown vision_provider: '{self.vision_provider}'")
 
             if self.vision_provider == "siliconflow":
-                api_key = os.getenv("SILICONFLOW_API_KEY", "")
-                base_url = os.getenv("SILICONFLOW_BASE_URL", provider_def["base_url"])
+                api_key = os.getenv("VISION_API_KEY") or os.getenv("SILICONFLOW_API_KEY", "")
+                base_url = (
+                    os.getenv("VISION_BASE_URL")
+                    or os.getenv("SILICONFLOW_BASE_URL", provider_def["base_url"])
+                )
             else:
                 api_key = os.getenv("VISION_API_KEY", "")
                 base_url = os.getenv("VISION_BASE_URL", provider_def["base_url"])
