@@ -300,7 +300,7 @@ def call_llm(
     config: ProviderConfig,
     images: Optional[list[str]] = None,
     max_tokens: int = 4096,
-    timeout: int = 30,
+    timeout: int = 300,
 ) -> str:
     """
     Unified LLM call interface.
