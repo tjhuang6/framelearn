@@ -82,10 +82,10 @@ assert result.has_timestamps is False  # 硅基流动无时间戳
 **文件**：`framelearn/pipeline/keyframe_dedup.py`
 
 **子任务**：
-- [ ] 使用 `imagehash.phash()` 计算感知哈希
-- [ ] 实现相似度计算（汉明距离）
-- [ ] 去重逻辑：保留第一帧，跳过相似度 > 90% 的后续帧
-- [ ] 限制最终数量（max_frames）
+- [x] 使用 `imagehash.phash()` 计算感知哈希
+- [x] 实现相似度计算（汉明距离）
+- [x] 去重逻辑：保留第一帧，跳过相似度 > 90% 的后续帧
+- [x] 限制最终数量（max_frames）
 - [ ] 编写单元测试（准备测试图片集）
 
 **验收**：
