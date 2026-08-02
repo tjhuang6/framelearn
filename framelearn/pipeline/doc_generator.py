@@ -141,23 +141,63 @@ class DocumentGenerator:
         keyframes: list[tuple[Path, float]],
         subtitle: str,
         video_title: str,
-        mode: DocMode = "textbook",
+        mode: DocMode = "visual_script",
+        srt_text: str | None = None,
     ) -> str:
         """Generate markdown tutorial.
+
+        For long videos, automatically splits into segments and generates each
+        one independently, then merges the results.
 
         Args:
             keyframes: List of (frame_path, timestamp_seconds) tuples
             subtitle: Cleaned subtitle text
             video_title: Title of the video
-            mode: "notes" (bullet-point summary) or "textbook" (prose tutorial)
+            mode: "visual_script" / "notes" / "textbook"
+            srt_text: Raw SRT content for precise time-based splitting
 
         Returns:
             Generated markdown content
         """
-        if self.vision_mode == "appserver":
-            return self._generate_via_appserver(keyframes, subtitle, video_title, mode)
+        from framelearn.pipeline.segment_splitter import split_segments
+
+        segment_duration = config_get("doc_generation.segment_duration", 90)
+        max_kf_per_seg = config_get("doc_generation.max_keyframes_per_segment", 10)
+
+        # Decide whether to use segmented generation
+        # Use segments when subtitle is long or there are many keyframes
+        use_segments = len(subtitle) > 8000 or len(keyframes) > 20
+
+        if use_segments:
+            segments = split_segments(
+                subtitle=subtitle,
+                keyframes=keyframes,
+                segment_duration=float(segment_duration),
+                max_keyframes_per_segment=int(max_kf_per_seg),
+                srt_text=srt_text,
+            )
+            print(f"   📐 切分为 {len(segments)} 段生成...")
+            parts = []
+            for seg in segments:
+                print(f"   ⚙️  生成第 {seg.index + 1}/{len(segments)} 段"
+                      f"（{_fmt_ts(seg.start_time)}~{_fmt_ts(seg.end_time)}）...")
+                part = self._generate_single(seg.keyframes, seg.subtitle, mode)
+                parts.append(part)
+            return f"# {video_title}\n\n" + "\n\n---\n\n".join(parts)
         else:
-            return self._generate_via_api(keyframes, subtitle, video_title, mode)
+            return self._generate_single(keyframes, subtitle, mode)
+
+    def _generate_single(
+        self,
+        keyframes: list[tuple[Path, float]],
+        subtitle: str,
+        mode: DocMode,
+    ) -> str:
+        """Generate markdown for a single segment."""
+        if self.vision_mode == "appserver":
+            return self._generate_via_appserver(keyframes, subtitle, "", mode)
+        else:
+            return self._generate_via_api(keyframes, subtitle, "", mode)
 
     def _build_prompt(
         self,
