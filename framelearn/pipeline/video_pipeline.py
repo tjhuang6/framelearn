@@ -82,17 +82,31 @@ class VideoPipeline:
                     srt=self.subtitle_path.read_text(encoding="utf-8") if self.subtitle_path.suffix == ".srt" else None,
                 )
             else:
-                # Extract audio first (only needed for ASR)
-                print("🎵 提取音轨...")
-                audio_path = temp_dir / "audio.m4a"
-                if not FFmpegHelper.extract_audio(str(self.video_path), str(audio_path)):
-                    return self._error_result("音轨提取失败")
+                # Check for cached subtitle first
+                cached_srt = src_dir / "subtitle.srt"
+                cached_txt = src_dir / "subtitle.txt"
 
-                try:
-                    asr = ASRAdapter()  # reads provider from settings.toml
-                    transcript = asr.transcribe(str(audio_path), output_dir=self.output_dir)
-                except Exception as e:
-                    return self._error_result(f"语音识别失败：{e}")
+                if cached_srt.exists() and cached_txt.exists():
+                    print("⏭️  使用已缓存字幕...")
+                    from framelearn.pipeline.asr_adapter import TranscriptResult
+                    transcript = TranscriptResult(
+                        segments=[],
+                        full_text=cached_txt.read_text(encoding="utf-8"),
+                        has_timestamps=True,
+                        srt=cached_srt.read_text(encoding="utf-8"),
+                    )
+                else:
+                    # Extract audio first (only needed for ASR)
+                    print("🎵 提取音轨...")
+                    audio_path = temp_dir / "audio.m4a"
+                    if not FFmpegHelper.extract_audio(str(self.video_path), str(audio_path)):
+                        return self._error_result("音轨提取失败")
+
+                    try:
+                        asr = ASRAdapter()  # reads provider from settings.toml
+                        transcript = asr.transcribe(str(audio_path), output_dir=self.output_dir)
+                    except Exception as e:
+                        return self._error_result(f"语音识别失败：{e}")
 
             # Step 3: Clean subtitle
             print("✨ 清洗字幕...")
