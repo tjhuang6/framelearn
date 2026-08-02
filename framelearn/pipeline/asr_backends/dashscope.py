@@ -109,6 +109,8 @@ class DashscopeBackend:
     def transcribe(self, audio_path: Path, output_dir: Optional[Path] = None):
         """Full pipeline: split → OSS → submit → poll → merge → cleanup.
 
+        Supports resuming from a previous run via asr_checkpoint.json.
+
         Args:
             audio_path: Path to the audio file to transcribe
             output_dir: If provided, temp files go to output_dir/temp instead of
@@ -117,6 +119,7 @@ class DashscopeBackend:
         from framelearn.pipeline.asr_adapter import TranscriptResult, TranscriptSegment
         from framelearn.pipeline.asr_backends.oss_client import OssClient
 
+        import json
         import shutil
         import tempfile
 
@@ -125,46 +128,76 @@ class DashscopeBackend:
         if output_dir is not None:
             temp_dir = Path(output_dir) / "temp"
             temp_dir.mkdir(parents=True, exist_ok=True)
+            checkpoint_path = temp_dir / "asr_checkpoint.json"
         else:
             temp_dir = Path(tempfile.mkdtemp(prefix="framelearn_asr_"))
+            checkpoint_path = temp_dir / "asr_checkpoint.json"
 
         chunks: list[AudioChunk] = []
 
         try:
-            # 1. Split
+            # 1. Split (skip if chunks already exist)
             print(f"✂️  切分音频（每段 {self.chunk_duration // 60} 分钟）...")
             chunks = self._split_audio(audio_path, temp_dir)
             print(f"   共 {len(chunks)} 段")
 
-            # 2. Upload + submit in parallel
+            # 2. Load checkpoint
+            checkpoint = self._load_checkpoint(checkpoint_path)
+            if checkpoint:
+                done = sum(1 for c in checkpoint.values() if c.get("status") == "done")
+                print(f"♻️  发现断点记录，已完成 {done}/{len(chunks)} 段，继续上次进度...")
+
+            # 3. Upload + submit (skip already submitted chunks)
             oss = OssClient()
-            print("⬆️  并行上传 OSS + 提交任务...")
             task_map: dict[str, AudioChunk] = {}
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                futures = {
-                    executor.submit(self._upload_and_submit, chunk, oss): chunk
-                    for chunk in chunks
-                }
-                for future in concurrent.futures.as_completed(futures):
-                    try:
-                        chunk, task_id = future.result()
-                        task_map[task_id] = chunk
-                        print(f"   ✅ 段 {chunk.index + 1}/{len(chunks)} 已提交")
-                    except Exception as e:
-                        c = futures[future]
-                        print(f"   ❌ 段 {c.index + 1} 提交失败：{e}")
+            # Restore completed tasks from checkpoint
+            for chunk in chunks:
+                key = str(chunk.index)
+                entry = checkpoint.get(key, {})
+                if entry.get("status") == "done" and entry.get("task_id"):
+                    task_map[entry["task_id"]] = chunk
+                    print(f"   ⏭️  段 {chunk.index + 1}/{len(chunks)} 已完成，跳过上传")
+
+            # Submit remaining chunks
+            pending = [c for c in chunks if str(c.index) not in checkpoint
+                       or checkpoint[str(c.index)].get("status") != "done"]
+
+            if pending:
+                print(f"⬆️  上传并提交 {len(pending)} 段...")
+                with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                    futures = {
+                        executor.submit(self._upload_and_submit, chunk, oss): chunk
+                        for chunk in pending
+                    }
+                    for future in concurrent.futures.as_completed(futures):
+                        try:
+                            chunk, task_id = future.result()
+                            task_map[task_id] = chunk
+                            checkpoint[str(chunk.index)] = {"status": "submitted", "task_id": task_id}
+                            self._save_checkpoint(checkpoint_path, checkpoint)
+                            print(f"   ✅ 段 {chunk.index + 1}/{len(chunks)} 已提交")
+                        except Exception as e:
+                            c = futures[future]
+                            print(f"   ❌ 段 {c.index + 1} 提交失败：{e}")
 
             if not task_map:
                 raise RuntimeError("所有分段均提交失败")
 
-            # 3. Poll
+            # 4. Poll
             print(f"⏳ 等待识别完成（{len(task_map)} 个任务）...")
             results: list[tuple[AudioChunk, dict]] = []
             for task_id, chunk in task_map.items():
+                key = str(chunk.index)
+                # Already have result in checkpoint?
+                if checkpoint.get(key, {}).get("status") == "done" and checkpoint[key].get("result"):
+                    results.append((chunk, checkpoint[key]["result"]))
+                    continue
                 try:
                     raw = self._poll_task(task_id)
                     results.append((chunk, raw))
+                    checkpoint[key] = {"status": "done", "task_id": task_id, "result": raw}
+                    self._save_checkpoint(checkpoint_path, checkpoint)
                     print(f"   ✅ 段 {chunk.index + 1} 完成")
                 except Exception as e:
                     print(f"   ❌ 段 {chunk.index + 1} 识别失败：{e}")
@@ -172,12 +205,16 @@ class DashscopeBackend:
             if not results:
                 raise RuntimeError("所有分段均识别失败")
 
-            # 4. Merge
+            # 5. Merge
             results.sort(key=lambda x: x[0].index)
             all_segments = self._merge_results(results)
 
             full_text = " ".join(s.text for s in all_segments)
             srt = build_srt(all_segments)
+
+            # All done — remove checkpoint
+            if checkpoint_path.exists():
+                checkpoint_path.unlink()
 
             return TranscriptResult(
                 segments=all_segments,
@@ -185,6 +222,7 @@ class DashscopeBackend:
                 has_timestamps=True,
                 srt=srt,
             )
+
 
         finally:
             self._cleanup(chunks, oss if 'oss' in dir() else None)
