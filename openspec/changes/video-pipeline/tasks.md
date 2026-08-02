@@ -398,11 +398,13 @@ def capture_single_frame(
 
 **文件**：`framelearn/pipeline/agent_keyframe_selector.py`
 
-**职责**：
-- LLM 逐段读字幕，决定哪个时间点需要截图
-- 调用 `FFmpegHelper.capture_single_frame()` 截取
-- LLM 看图，判断是否保留（有教学价值？）
-- 返回精选关键帧列表
+**子任务**：
+- [x] 启发式预过滤（关键词匹配，免费）
+- [x] LLM 决策：是否需要截图（JSON 返回）
+- [x] 调用 `FFmpegHelper.capture_single_frame()` 截帧
+- [x] LLM 评估图片价值（PPT/代码 → 保留；人脸/空白 → 丢弃）
+- [x] 结果去重（±2 秒内不重复）
+- [ ] 编写单元测试（mock LLM 决策）
 
 **接口**：
 ```python
