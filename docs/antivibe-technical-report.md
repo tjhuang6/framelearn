@@ -191,6 +191,22 @@ Alternatives：直接 OpenAI-compatible HTTP、调用 `codex exec`、自己实�
 
 建议：`PipelineResult` 增加 warnings；输出 `run-report.json`，列出失败分段、fallback、跳过帧和缓存命中。
 
+### P1：CLI 失败可能仍返回成功退出码
+
+`VideoPipeline` 的业务失败通常通过 `PipelineResult.error` 返回，Router 只打印错误；未实现的在线下载同样是打印提示后正常返回。因此 `_run_once()` 没有看到异常，最终返回 0。审计实测 `framelearn run https://youtube.com/watch?v=x` 明确打印“在线下载尚未实现”，shell 退出码仍为 0。
+
+这会误导 shell 脚本、批处理和 CI：日志显示失败，但自动化系统将任务标为成功。
+
+建议：让 Router handler 返回明确状态，或在不可完成的 `run` 路径抛出领域异常；`_run_once()` 应把失败统一映射为非零退出码，并增加 CLI exit-code 测试。
+
+### P1：Codex 子进程继承了不需要的云凭据
+
+`JsonRpcStdioClient._build_env()` 从完整 `os.environ` 复制环境，只移除 `TEXT_API_KEY`、`VISION_API_KEY`、`DATABASE_URL` 和 `WEBHOOK_SECRET`。因此 `DASHSCOPE_API_KEY`、`SILICONFLOW_API_KEY`、`OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET` 以及其他云凭据仍会进入 `codex app-server` 子进程。
+
+保留真实 `HOME` 对 Git/Codex 配置有价值，但不等于应继承全部秘密。只要 Agent 能执行命令，就可能读取这些环境变量，扩大凭据暴露面。
+
+建议：改为 allowlist 构建子进程环境，至少只保留系统运行变量、`HOME`、`PATH`、Codex 必要配置和明确授权的字段；如必须使用 denylist，应补齐 FrameLearn 自身的 ASR/OSS 密钥并加入回归测试。
+
 ### P2：配置存在重复和未使用字段
 
 - `runtime.asr_provider` 在旧文档中出现，但代码读 `asr.provider`；当前 `settings.toml` 同时还有 `runtime.asr_provider` 与 `[asr].provider`。
@@ -199,6 +215,18 @@ Alternatives：直接 OpenAI-compatible HTTP、调用 `codex exec`、自己实�
 - `appserver.command/workspace/approval_policy` 没有完整贯穿所有直接 `AppServerSession` 构造。
 
 建议：为每个配置字段建立读取测试，移除无消费者字段，或明确标记 reserved。
+
+### P2：安装形态可能改变配置来源
+
+默认配置路径由 `Path(__file__).parent.parent / "settings.toml"` 推导。源码可编辑安装时它通常指向仓库根目录；普通 wheel 安装后则可能指向 `site-packages` 上层，而项目没有明确把根目录 `settings.toml` 作为包资源安装。找不到文件时，代码会静默使用与仓库配置不完全一致的内置默认值。
+
+建议：定义稳定的配置优先级，例如显式 `--config` / 环境变量路径 → 当前工作目录 → 用户配置目录 → 包内默认资源；启动时打印实际配置来源，并为 editable install 与 wheel install 分别增加测试。
+
+### P2：会话和远程媒体的数据边界缺少说明
+
+DashScope 路径会把音频切片上传到 OSS，再通过签名 URL交给 ASR；Vision API 会发送字幕和关键帧；Codex 对话、工具调用和 reasoning 会明文保存到 `~/.framelearn/sessions.db`。当前用户文档没有集中说明这些数据去向、保留周期、清理方式或关闭持久化的方法。
+
+建议：补充隐私与数据生命周期文档；提供会话数据库清理/禁用选项；输出每次任务实际使用的外部服务和远程数据类型。
 
 ### P2：分段和双文档生成的成本模型不透明
 
