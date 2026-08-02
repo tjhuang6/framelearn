@@ -350,38 +350,46 @@ class DocumentGenerator:
     ) -> str:
         """Generate via provider_adapter (Vision API)."""
         import base64
-        from framelearn.provider_adapter import ProviderAdapter
+        from framelearn.provider_adapter import call_llm, load_vision_config, ProviderConfig, PROVIDERS
 
         # Build text prompt
         text_prompt = self._build_prompt(keyframes, subtitle, mode)
 
         # Encode keyframes to base64
-        content = [{"type": "text", "text": text_prompt}]
-
-        for frame_path, timestamp in keyframes:
+        images: list[str] = []
+        for frame_path, _ in keyframes:
             if not frame_path.exists():
                 continue
             try:
                 with open(frame_path, "rb") as f:
                     img_data = base64.b64encode(f.read()).decode("utf-8")
-                content.append({
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{img_data}"}
-                })
+                images.append(img_data)
             except Exception as e:
                 print(f"⚠️  无法读取关键帧 {frame_path.name}：{e}")
 
-        # Call Vision API
-        adapter = ProviderAdapter()
-        provider = config_get("runtime.vision_provider", "deepseek")
-        model = model_override or config_get("runtime.vision_model", "deepseek-reasoner")
+        # Build config from settings.toml (overrides env vars)
+        provider_key = config_get("runtime.vision_provider", "siliconflow")
+        model = model_override or config_get("runtime.vision_model", "Qwen/Qwen2.5-VL-72B-Instruct")
+        provider_def = PROVIDERS.get(provider_key)
+        if not provider_def:
+            raise ValueError(f"Unknown vision_provider: '{provider_key}'")
+
+        import os
+        if provider_key == "siliconflow":
+            api_key = os.getenv("SILICONFLOW_API_KEY", "")
+            base_url = os.getenv("SILICONFLOW_BASE_URL", provider_def["base_url"])
+        else:
+            api_key = os.getenv("VISION_API_KEY", "")
+            base_url = os.getenv("VISION_BASE_URL", provider_def["base_url"])
+
+        config = ProviderConfig(
+            provider=provider_key,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+        )
 
         try:
-            response = adapter.chat(
-                messages=[{"role": "user", "content": content}],
-                provider=provider,
-                model=model,
-            )
-            return response
+            return call_llm(text_prompt, config, images=images, max_tokens=8192)
         except Exception as e:
             raise RuntimeError(f"Vision API 调用失败：{e}")
