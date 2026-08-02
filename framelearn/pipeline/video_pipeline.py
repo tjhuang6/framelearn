@@ -74,7 +74,6 @@ class VideoPipeline:
                 raw_subtitle = self.subtitle_path.read_text(encoding="utf-8")
                 # Strip SRT/VTT formatting if needed — just keep plain text
                 if self.subtitle_path.suffix in (".srt", ".vtt"):
-                    from framelearn.pipeline.subtitle_cleaner import SubtitleCleaner
                     raw_subtitle = SubtitleCleaner.strip_timestamps(raw_subtitle)
                 transcript = TranscriptResult(
                     segments=[],
