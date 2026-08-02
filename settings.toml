@@ -64,7 +64,7 @@ max_keyframes = 100
 image_quality = 85
 
 # 是否保留临时文件（调试时可开启）
-keep_temp_files = false
+keep_temp_files = true
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -113,6 +113,7 @@ overlap = 0                    # 第一版不做重叠
 poll_interval = 5              # 轮询间隔（秒）
 poll_timeout = 3600            # 单段最大等待时间（秒）
 vocabulary_id = ""             # 可选热词表 ID（留空不使用）
+keep_temp_files = false        # true 时保留切片文件到 output/任务名/temp/，方便调试
 
 [asr.oss]
 bucket = "framelearn-audio"                    # 阿里云 OSS Bucket 名称（dashscope 时必填）
