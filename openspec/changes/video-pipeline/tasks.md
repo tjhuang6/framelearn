@@ -109,8 +109,9 @@ uv add imagehash pillow
 **文件**：`framelearn/pipeline/subtitle_cleaner.py`
 
 **子任务**：
-- [ ] 移植 Bilitato 的清洗规则（去括号、全角转半角、去重复）
-- [ ] 断句优化（句号后换行）
+- [x] 移植 Bilitato 的清洗规则（去括号、全角转半角、去重复）
+- [x] 断句优化（句号后换行）
+- [x] `strip_timestamps()` — 去除 SRT/VTT 时间戳，返回纯文本
 - [ ] 编写单元测试（测试用例覆盖常见情况）
 
 **验收**：
