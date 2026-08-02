@@ -152,7 +152,7 @@ assert cleaned.count("今天讲 Python") == 1  # 去重
 - [x] `vision_mode=api` 时，调用 `provider_adapter`
 - [x] 支持多模态输入（text + image）
 - [x] Base64 编码图片
-- [ ] 编写单元测试（mock httpx）
+- [x] 编写单元测试（mock httpx）
 
 ---
 
