@@ -157,7 +157,7 @@ class VideoPipeline:
             print("📖 生成教材版...")
             try:
                 textbook_md = generator.generate(
-                    keyframes=final_frames,
+                    keyframes=final_frames_with_time,
                     subtitle=cleaned_subtitle,
                     video_title=self.video_path.stem,
                     mode="textbook",
