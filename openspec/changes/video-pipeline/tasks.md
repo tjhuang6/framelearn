@@ -142,7 +142,7 @@ assert cleaned.count("今天讲 Python") == 1  # 去重
 - [x] 构造 prompt：字幕 + 关键帧（带时间戳）
 - [x] 支持三种模式：visual_script / notes / textbook
 - [x] 分段生成（> 8000 字或 > 20 帧自动切分）
-- [ ] 编写单元测试（mock app-server）
+- [x] 编写单元测试（mock app-server）
 
 ---
 
