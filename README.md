@@ -20,7 +20,6 @@ FrameLearn 将本地编程教学视频转换为带关键帧的 Markdown 学习�
 ## 尚未实现或受限的能力
 
 - YouTube/Bilibili URL 会被识别和校验，但在线下载尚未实现；请先下载到本地。
-- `summarize` 只打印外部 `/summarize-learning` skill 的使用提示，不会在 FrameLearn 内生成总结。
 - `ask` 当前不是“只检索已生成教材”的 RAG 问答；它是工作目录中的通用 Codex/API 对话。
 - 当前 FrameLearn 的 app-server `turn/start` 只发送文字。文档生成若要让模型看到关键帧，应使用 `runtime.vision_mode = "api"`。
 - Agent 关键帧选择为实验功能。API 图像评估路径目前引用了尚不存在的 `ProviderAdapter` 类；保持默认关闭。

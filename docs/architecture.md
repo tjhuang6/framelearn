@@ -39,7 +39,6 @@ CommandParser
 CommandRouter
           ├── run       → VideoPipeline
           ├── ask       → RuntimeAdapter 或 provider_adapter
-          ├── summarize → 打印外部 skill 提示
           └── help      → 打印帮助
 ```
 
