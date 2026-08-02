@@ -265,9 +265,9 @@ class TestDocumentGenerator:
 
         def fake_generate(keyframes, subtitle, mode, model_override=None):
             # Capture the prompt that would be sent
-            from framelearn.pipeline.doc_generator import DocumentGenerator as DG, DocMode
+            from framelearn.pipeline.doc_generator import DocumentGenerator as DG
             gen_inner = DG.__new__(DG)
-            captured_prompt["text"] = gen_inner._build_prompt(keyframes, subtitle, DocMode(mode))
+            captured_prompt["text"] = gen_inner._build_prompt(keyframes, subtitle, "textbook")
             return "# 教材\n完整段落..."
 
         gen = DocumentGenerator()
