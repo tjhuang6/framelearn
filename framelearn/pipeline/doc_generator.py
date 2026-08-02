@@ -190,10 +190,10 @@ class DocumentGenerator:
             )
             print(f"   📐 切分为 {len(segments)} 段生成...")
 
-            # Setup segment cache directory
+            # Setup segment cache directory (separate by mode)
             segments_dir = None
             if output_dir:
-                segments_dir = output_dir / "segments"
+                segments_dir = output_dir / f"segments_{mode}"
                 segments_dir.mkdir(exist_ok=True)
 
             quality_review = config_get("agent.quality_review", False)
