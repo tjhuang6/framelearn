@@ -137,48 +137,35 @@ assert cleaned.count("今天讲 Python") == 1  # 去重
 **文件**：`framelearn/pipeline/doc_generator.py`
 
 **子任务**：
-- [ ] 读取 `settings.toml` 的 `vision_mode` 和 `text_mode`
-- [ ] `vision_mode=appserver` 时，调用 `AppServerSession`
-- [ ] 构造 prompt：字幕 + 关键帧（localImage）
-- [ ] 解析 Codex 返回的 Markdown
-- [ ] 处理超长输入（分批发送）
+- [x] 读取 `settings.toml` 的 `vision_mode` 和 `text_mode`
+- [x] `vision_mode=appserver` 时，调用 `AppServerSession`
+- [x] 构造 prompt：字幕 + 关键帧（带时间戳）
+- [x] 支持三种模式：visual_script / notes / textbook
+- [x] 分段生成（> 8000 字或 > 20 帧自动切分）
 - [ ] 编写单元测试（mock app-server）
-
-**Prompt 模板**：见 design.md
-
-**验收**：
-```python
-generator = DocumentGenerator()
-md = generator.generate(
-    keyframes=[Path("src/frame_001.jpg")],
-    subtitle="这是字幕内容",
-    video_title="Python 入门",
-)
-assert "# " in md  # 至少有一个标题
-assert "![" in md  # 至少引用了一张图片
-```
-
-**依赖**：Task 1.2, Task 3.1
 
 ---
 
 #### Task 4.2：实现 DocumentGenerator（API 模式）
 
 **子任务**：
-- [ ] `vision_mode=api` 时，调用 `provider_adapter`
-- [ ] 支持多模态输入（text + image）
-- [ ] Base64 编码图片
+- [x] `vision_mode=api` 时，调用 `provider_adapter`
+- [x] 支持多模态输入（text + image）
+- [x] Base64 编码图片
 - [ ] 编写单元测试（mock httpx）
 
-**验收**：
-```python
-# settings.toml: vision_mode = "api"
-generator = DocumentGenerator()
-md = generator.generate(...)
-assert "# " in md
-```
+---
 
-**依赖**：Task 4.1
+#### Task 4.3：实现 SegmentSplitter
+
+**文件**：`framelearn/pipeline/segment_splitter.py`
+
+**子任务**：
+- [x] 定义 `Segment` dataclass
+- [x] SRT 精确切分（解析时间戳）
+- [x] 字数估算 fallback
+- [x] 为每段分配对应时间范围内的关键帧
+- [ ] 编写单元测试
 
 ---
 
