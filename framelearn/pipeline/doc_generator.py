@@ -352,8 +352,7 @@ class DocumentGenerator:
         model_override: str | None = None,
     ) -> str:
         """Generate via provider_adapter (Vision API)."""
-        import base64
-        from framelearn.provider_adapter import call_llm, load_vision_config, ProviderConfig, PROVIDERS
+        from framelearn.provider_adapter import call_llm, ProviderConfig, PROVIDERS
 
         # Build text prompt
         text_prompt = self._build_prompt(keyframes, subtitle, mode)
