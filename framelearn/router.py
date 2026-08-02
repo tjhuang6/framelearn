@@ -75,9 +75,11 @@ class CommandRouter:
     # Command handlers
     # ------------------------------------------------------------------
 
-    def _run_pipeline(self, source: str):
+    def _run_pipeline(self, source: str, flags: dict = {}):
         if not source:
             raise ValueError("缺少视频 URL 或文件路径")
+
+        subtitle_path = flags.get("subtitle")
 
         if source.startswith("http"):
             if not self._is_valid_video_url(source):
@@ -91,10 +93,12 @@ class CommandRouter:
             if not self._is_video_file(source):
                 raise ValueError("不支持的文件格式，仅支持常见视频格式")
 
-            # Process local video file
+            if subtitle_path and not os.path.isfile(subtitle_path):
+                raise ValueError(f"字幕文件不存在：{subtitle_path}")
+
             from framelearn.pipeline import VideoPipeline
 
-            pipeline = VideoPipeline(source)
+            pipeline = VideoPipeline(source, subtitle_path=subtitle_path)
             result = pipeline.run()
 
             if result.error:
