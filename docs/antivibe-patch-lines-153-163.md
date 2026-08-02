@@ -63,6 +63,26 @@ from framelearn.provider_adapter import ProviderAdapter
 
 这样既消除了不存在类的引用，也避免直接调用环境驱动的 `call_vision_llm()` 时忽略 selector 中 provider/model 配置的问题。
 
+### 配置结论
+
+对于 `runtime.vision_mode = "api"` 的 **Vision API 调用本身**，现在可以统一使用：
+
+```bash
+VISION_API_KEY=your_vision_api_key
+VISION_BASE_URL=https://your-provider.example/v1/
+```
+
+其中：
+
+- `VISION_API_KEY` 是 API 模式所需的通用密钥；
+- `VISION_BASE_URL` 仅在使用代理、兼容网关或自定义 endpoint 时需要。如果使用 provider 的内置默认地址，可以不配置这一项；
+- Vision provider 和 model 仍由 `settings.toml` 中的 `runtime.vision_provider`、`runtime.vision_model` 决定，不需要重复写成环境变量；
+- 当 provider 是 SiliconFlow 时，旧的 `SILICONFLOW_API_KEY`、`SILICONFLOW_BASE_URL` 仍可作为 fallback，但不再是必填项；
+- 这两项只覆盖 Vision API。完整运行默认 DashScope ASR 时，仍需另外配置 `DASHSCOPE_API_KEY`、`OSS_ACCESS_KEY_ID` 和 `OSS_ACCESS_KEY_SECRET`；
+- 如果 `runtime.vision_mode = "appserver"`，Vision API 环境变量不参与该路径，模型和认证由本地 Codex CLI 管理。
+
+因此，“只配置 `VISION_API_KEY` 和 `VISION_BASE_URL`”对 Vision API 层成立；对 FrameLearn 的完整视频处理流程是否足够，仍取决于所选 ASR backend。使用 provider 默认 endpoint 时，Vision API 层实际上只要求 `VISION_API_KEY`。
+
 ### TDD 证据
 
 新增测试：
