@@ -176,12 +176,12 @@ assert cleaned.count("今天讲 Python") == 1  # 去重
 **文件**：`framelearn/pipeline/video_pipeline.py`
 
 **子任务**：
-- [ ] 定义 `PipelineResult` dataclass
-- [ ] `__init__()` — 验证输入、创建输出目录
-- [ ] `run()` — 串联所有模块
-- [ ] 临时文件管理（keep_temp_files 控制）
-- [ ] 错误处理（try/finally 保证清理）
-- [ ] 进度输出（每个阶段打印状态）
+- [x] 定义 `PipelineResult` dataclass
+- [x] `__init__()` — 验证输入、创建输出目录，支持 `subtitle_path` 跳过 ASR
+- [x] `run()` — 串联所有模块（分段生成，带时间戳关键帧）
+- [x] 临时文件管理（keep_temp_files 控制）
+- [x] 错误处理（try/finally 保证清理）
+- [x] 进度输出（每个阶段打印状态）
 - [ ] 编写集成测试（端到端）
 
 **流程**：
