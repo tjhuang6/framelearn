@@ -202,12 +202,75 @@ class DocumentGenerator:
         keyframes: list[tuple[Path, float]],
         subtitle: str,
         mode: DocMode,
+        model_override: str | None = None,
     ) -> str:
         """Generate markdown for a single segment."""
         if self.vision_mode == "appserver":
             return self._generate_via_appserver(keyframes, subtitle, "", mode)
         else:
-            return self._generate_via_api(keyframes, subtitle, "", mode)
+            return self._generate_via_api(keyframes, subtitle, "", mode, model_override=model_override)
+
+    def _review_segment(self, draft: str, subtitle: str) -> dict:
+        """LLM reviews generated segment quality.
+
+        Returns dict with keys: ok (bool), issues (list[str])
+        """
+        # Fast heuristic checks first (no LLM cost)
+        issues = []
+        if len(draft.strip()) < 100:
+            issues.append("内容过短（< 100 字）")
+        filler_words = ["那么", "就是说", "大家", "咱们", "然后呢", "这个吧"]
+        for w in filler_words:
+            if draft.count(w) > 3:
+                issues.append(f"口水词未清理（'{w}' 出现 {draft.count(w)} 次）")
+                break
+        # Check missing image reference when subtitle mentions visuals
+        visual_hints = ["如图", "看图", "可以看到", "演示", "代码"]
+        has_visual_hint = any(h in subtitle for h in visual_hints)
+        has_image_ref = "![](" in draft or "![" in draft
+        if has_visual_hint and not has_image_ref:
+            issues.append("字幕提到画面但未插入关键帧")
+
+        return {"ok": len(issues) == 0, "issues": issues}
+
+    def _generate_with_review(
+        self,
+        keyframes: list[tuple[Path, float]],
+        subtitle: str,
+        mode: DocMode,
+    ) -> str:
+        """Generate a segment with quality review and retry logic.
+
+        Retry strategy:
+          Attempt 1: normal model
+          Attempt 2: same model, stronger prompt hint
+          Attempt 3: upgrade model (review_model → upgrade_model config)
+          Fallback: return raw subtitle text (never lose content)
+        """
+        upgrade_model = config_get("agent.upgrade_model", None)
+
+        for attempt in range(3):
+            if attempt == 0:
+                draft = self._generate_single(keyframes, subtitle, mode)
+            elif attempt == 1:
+                # Add review hint to subtitle
+                hint = "\n\n[注意：请确保去除所有口水词，并在提到画面时插入对应关键帧]"
+                draft = self._generate_single(keyframes, subtitle + hint, mode)
+            else:
+                # Upgrade model
+                draft = self._generate_single(
+                    keyframes, subtitle, mode,
+                    model_override=upgrade_model,
+                )
+
+            review = self._review_segment(draft, subtitle)
+            if review["ok"]:
+                return draft
+            print(f"   ⚠️  质量评审不通过（第 {attempt + 1} 次）：{', '.join(review['issues'])}")
+
+        # Final fallback: preserve subtitle as-is
+        print("   ⚠️  3 次重试后仍不通过，降级保存原始字幕")
+        return subtitle
 
     def _build_prompt(
         self,
