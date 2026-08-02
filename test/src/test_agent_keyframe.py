@@ -172,7 +172,7 @@ class TestAgentKeyframeSelectorSelect:
         assert not frame.exists()  # deleted
 
     def test_select_deduplicates_nearby_timestamps(self, tmp_path):
-        """existing_keyframes 中已有 ±2 秒内的帧时，跳过。"""
+        """existing_keyframes 中已有 ±2 秒内的帧时，即使 LLM 同意也不重复截帧。"""
         segments = [make_segment("如图", 30.5, 35.0)]
         existing = [(tmp_path / "existing.jpg", 30.0)]
         (tmp_path / "existing.jpg").write_bytes(b"\xff\xd8\xff\xd9")
@@ -180,11 +180,15 @@ class TestAgentKeyframeSelectorSelect:
         self.sel._call_text_llm = Mock(
             return_value=json.dumps({"need_frame": True, "reason": "图"})
         )
+        # Even if LLM says yes, dedup should prevent a new frame at 30.5
+        # (within 2s of existing 30.0)
+        with patch("framelearn.pipeline.agent_keyframe_selector.FFmpegHelper") as mock_ff:
+            mock_ff.capture_single_frame.return_value = True
 
-        result = self.sel.select("v.mp4", segments, tmp_path, existing_keyframes=existing)
+            result = self.sel.select("v.mp4", segments, tmp_path, existing_keyframes=existing)
 
-        # New frame at 30.5 should be skipped (within 2s of existing 30.0)
-        self.sel._call_text_llm.assert_not_called()  # heuristic passes but dedup skips
+        # capture_single_frame should NOT have been called (dedup skipped it)
+        mock_ff.capture_single_frame.assert_not_called()
         # existing frame is preserved
         assert len(result) == 1
         assert result[0][1] == 30.0
