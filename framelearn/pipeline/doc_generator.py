@@ -346,6 +346,7 @@ class DocumentGenerator:
         keyframes: list[tuple[Path, float]],
         subtitle: str,
         mode: DocMode,
+        model_override: str | None = None,
     ) -> str:
         """Generate via provider_adapter (Vision API)."""
         import base64
@@ -373,7 +374,7 @@ class DocumentGenerator:
         # Call Vision API
         adapter = ProviderAdapter()
         provider = config_get("runtime.vision_provider", "deepseek")
-        model = config_get("runtime.vision_model", "deepseek-reasoner")
+        model = model_override or config_get("runtime.vision_model", "deepseek-reasoner")
 
         try:
             response = adapter.chat(
