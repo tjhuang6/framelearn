@@ -418,6 +418,6 @@ class DocumentGenerator:
         )
 
         try:
-            return call_llm(text_prompt, config, images=image_paths, max_tokens=8192)
+            return call_llm(text_prompt, config, images=image_paths, max_tokens=8192, timeout=300)
         except Exception as e:
             raise RuntimeError(f"Vision API 调用失败：{e}")
