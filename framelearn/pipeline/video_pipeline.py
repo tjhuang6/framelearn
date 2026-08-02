@@ -172,6 +172,7 @@ class VideoPipeline:
                     video_title=self.video_path.stem,
                     mode="notes",
                     srt_text=srt_content,
+                    output_dir=self.output_dir,
                 )
             except Exception as e:
                 return self._error_result(f"笔记生成失败：{e}")
@@ -184,6 +185,7 @@ class VideoPipeline:
                     video_title=self.video_path.stem,
                     mode=doc_mode,
                     srt_text=srt_content,
+                    output_dir=self.output_dir,
                 )
             except Exception as e:
                 return self._error_result(f"文档生成失败：{e}")
