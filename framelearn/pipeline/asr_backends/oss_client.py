@@ -30,14 +30,10 @@ class OssClient:
         auth = oss2.Auth(key_id, key_secret)
         endpoint = f"https://{region}.aliyuncs.com"
 
-        # Increase timeout for large audio files
-        self.bucket = oss2.Bucket(
-            auth,
-            endpoint,
-            bucket_name,
-            connect_timeout=30,  # connection timeout
-            timeout=600          # read/write timeout (10 minutes)
-        )
+        # oss2 doesn't accept timeout on Bucket directly;
+        # use connect_timeout via environment or defaults.
+        # For large file uploads we rely on multipart upload instead.
+        self.bucket = oss2.Bucket(auth, endpoint, bucket_name)
         endpoint = f"https://{region}.aliyuncs.com"
         self.bucket = oss2.Bucket(auth, endpoint, bucket_name)
         self._region = region
