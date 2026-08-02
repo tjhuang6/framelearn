@@ -153,11 +153,12 @@ class DocumentGenerator:
         video_title: str,
         mode: DocMode = "visual_script",
         srt_text: str | None = None,
+        output_dir: Path | None = None,
     ) -> str:
         """Generate markdown tutorial.
 
         For long videos, automatically splits into segments and generates each
-        one independently, then merges the results.
+        one independently, then merges the results. Supports resume from cached segments.
 
         Args:
             keyframes: List of (frame_path, timestamp_seconds) tuples
@@ -165,6 +166,7 @@ class DocumentGenerator:
             video_title: Title of the video
             mode: "visual_script" / "notes" / "textbook"
             srt_text: Raw SRT content for precise time-based splitting
+            output_dir: Output directory for segment caching (optional)
 
         Returns:
             Generated markdown content
@@ -187,15 +189,39 @@ class DocumentGenerator:
                 srt_text=srt_text,
             )
             print(f"   📐 切分为 {len(segments)} 段生成...")
+
+            # Setup segment cache directory
+            segments_dir = None
+            if output_dir:
+                segments_dir = output_dir / "segments"
+                segments_dir.mkdir(exist_ok=True)
+
             quality_review = config_get("agent.quality_review", False)
             parts = []
             for seg in segments:
-                print(f"   ⚙️  生成第 {seg.index + 1}/{len(segments)} 段"
+                seg_num = seg.index + 1
+
+                # Check cache
+                if segments_dir:
+                    cache_file = segments_dir / f"seg_{seg_num:03d}.md"
+                    if cache_file.exists():
+                        print(f"   ⏭️  第 {seg_num}/{len(segments)} 段已缓存，跳过...")
+                        parts.append(cache_file.read_text(encoding="utf-8"))
+                        continue
+
+                print(f"   ⚙️  生成第 {seg_num}/{len(segments)} 段"
                       f"（{_fmt_ts(seg.start_time)}~{_fmt_ts(seg.end_time)}）...")
+
                 if quality_review:
                     part = self._generate_with_review(seg.keyframes, seg.subtitle, mode)
                 else:
                     part = self._generate_single(seg.keyframes, seg.subtitle, mode)
+
+                # Save to cache
+                if segments_dir:
+                    cache_file = segments_dir / f"seg_{seg_num:03d}.md"
+                    cache_file.write_text(part, encoding="utf-8")
+
                 parts.append(part)
             return f"# {video_title}\n\n" + "\n\n---\n\n".join(parts)
         else:
