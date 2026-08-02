@@ -133,13 +133,26 @@ class VideoPipeline:
             final_frames = []
             final_frames_with_time = []
             for frame_path, timestamp in unique_frames:
-                # Keep original timestamp-based filename
                 dest = src_dir / frame_path.name
                 shutil.copy(frame_path, dest)
                 final_frames.append(dest)
                 final_frames_with_time.append((dest, timestamp))
 
             print(f"✅ 保留 {len(final_frames)} 个关键帧")
+
+            # Step 5.5: Agent keyframe selection (optional)
+            if config_get("agent.keyframe_selection", False):
+                print("🤖 Agent 关键帧选择...")
+                from framelearn.pipeline.agent_keyframe_selector import AgentKeyframeSelector
+                selector = AgentKeyframeSelector()
+                final_frames_with_time = selector.select(
+                    video_path=str(self.video_path),
+                    segments=transcript.segments if transcript else [],
+                    output_dir=src_dir,
+                    existing_keyframes=final_frames_with_time,
+                )
+                final_frames = [p for p, _ in final_frames_with_time]
+                print(f"✅ Agent 选择后：{len(final_frames)} 个关键帧")
 
             # Step 6: Generate documents
             generator = DocumentGenerator()
