@@ -59,7 +59,7 @@ assert len(frames) > 0
 - [x] 实现 `transcribe()` — 调用百炼 Qwen ASR API
 - [x] 处理 API 错误（401、429、超时）
 - [x] 重试逻辑（最多 3 次，间隔 5 秒）
-- [ ] 编写单元测试（mock httpx）
+- [x] 编写单元测试（mock httpx）
 
 **验收**：
 ```python
