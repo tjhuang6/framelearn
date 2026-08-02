@@ -5,6 +5,11 @@ from pathlib import Path
 
 from framelearn.config import get as config_get
 
+# Multipart upload threshold: files larger than this use multipart (10 MB)
+_MULTIPART_THRESHOLD = 10 * 1024 * 1024
+# Part size for multipart upload (10 MB)
+_PART_SIZE = 10 * 1024 * 1024
+
 
 class OssClient:
     """Upload / sign / delete objects on Aliyun OSS."""
@@ -29,18 +34,12 @@ class OssClient:
 
         auth = oss2.Auth(key_id, key_secret)
         endpoint = f"https://{region}.aliyuncs.com"
-
-        # oss2 doesn't accept timeout on Bucket directly;
-        # use connect_timeout via environment or defaults.
-        # For large file uploads we rely on multipart upload instead.
         self.bucket = oss2.Bucket(auth, endpoint, bucket_name)
-        endpoint = f"https://{region}.aliyuncs.com"
-        self.bucket = oss2.Bucket(auth, endpoint, bucket_name)
-        self._region = region
-        self._bucket_name = bucket_name
 
     def upload(self, local_path: str, object_key: str) -> str:
         """Upload a local file to OSS.
+
+        Uses multipart upload for files larger than 10 MB to avoid timeouts.
 
         Args:
             local_path: Path to local file
@@ -49,7 +48,19 @@ class OssClient:
         Returns:
             The object_key (for use with sign_url / delete)
         """
-        self.bucket.put_object_from_file(object_key, local_path)
+        import oss2
+
+        file_size = Path(local_path).stat().st_size
+        if file_size > _MULTIPART_THRESHOLD:
+            oss2.resumable_upload(
+                self.bucket,
+                object_key,
+                local_path,
+                part_size=_PART_SIZE,
+                num_threads=2,
+            )
+        else:
+            self.bucket.put_object_from_file(object_key, local_path)
         return object_key
 
     def sign_url(self, object_key: str, ttl_seconds: int) -> str:
