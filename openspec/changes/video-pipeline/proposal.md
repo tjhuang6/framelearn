@@ -12,14 +12,27 @@
 
 ```
 output/第四节分类任务/
-  index.md          # 主文档（带时间戳、关键帧引用、章节结构）
+  index.md          # 主文档（顺序图文讲稿，按时间轴插入关键帧）
+  notes.md          # 笔记版（bullet points 摘要）
   src/
-    frame_001.jpg   # 关键帧截图
-    frame_002.jpg
+    frame_00h03m45s.jpg   # 关键帧截图（文件名即时间戳）
+    frame_00h15m22s.jpg
     ...
-    subtitle.srt    # 完整字幕文件
-    subtitle.json   # 字幕原始数据（含词级时间戳）
+    subtitle.txt    # 清洗后纯文本字幕
+    subtitle.srt    # 带时间戳 SRT 字幕
 ```
+
+---
+
+## 产品定位
+
+FrameLearn 生成的不是传统"教材"或"知识点摘要"，而是**视频的可阅读替身**：
+
+- 字幕决定文字内容的时间顺序
+- 关键帧补充观众在视频中本来能看到的画面
+- 大模型把口语转成自然书面语，**不重排讲解顺序**
+- 图片插入到时间轴对应位置
+- 最终用户只阅读 Markdown，也能获得"看视频"的体验
 
 ---
 
@@ -28,36 +41,61 @@ output/第四节分类任务/
 ```
 视频文件
   │
-  ├── FFmpeg 提取音轨 → .m4a
+  ├── FFmpeg 提取音轨 → .m4a（仅无 --subtitle 时）
   │      ↓
   │   切成 30 分钟分段（4 秒重叠）
   │      ↓
   │   上传阿里云 OSS → 生成签名 URL
   │      ↓
-  │   并行提交百炼 paraformer-v2
+  │   并行提交百炼 Qwen ASR
   │      ↓
   │   合并分段结果 → 词级时间戳
   │      ↓
   │   字幕后处理（清洗 + 切分 + 去重）
   │      ↓
-  │   生成 subtitle.srt + subtitle.json
+  │   生成 subtitle.srt + subtitle.txt
   │
-  └── FFmpeg 场景检测 + 定时抽帧
+  └── FFmpeg 场景检测 + 定时抽帧（带 showinfo 提取 pts_time）
          ↓
       关键帧去重（感知哈希）
          ↓
-      保存 src/frame_*.jpg（最多 100 帧）
+      保存 src/frame_<HH>h<MM>m<SS>s.jpg（最多 100 帧）
          ↓
       关键帧与字幕时间轴对齐
 
-关键帧（localImage）+ 字幕文字（text）
+关键帧（带时间戳）+ 字幕（带时间戳）
          ↓
-Codex app-server 或 Vision API（按 settings.toml）
+  SegmentSplitter 按 90 秒切分为若干段
          ↓
-分段结构化分析 → 章节标题 + 要点 + 代码片段
+  逐段 LLM 生成（visual_script / notes / textbook）
          ↓
-生成 index.md
+  Agent 质量评审（缺图检查、顺序检查、重试）
+         ↓
+  合并 → 生成 index.md + notes.md
 ```
+
+---
+
+## 文档生成模式
+
+| 模式 | 说明 | 适用场景 |
+|------|------|----------|
+| `visual_script`（默认） | 按时间顺序图文讲稿，不重排 | 日常学习，替代看视频 |
+| `notes` | bullet points 摘要 | 快速复习 |
+| `textbook` | 知识点重排的正式教材 | 系统学习 |
+
+---
+
+## Agent 化能力（Phase 3）
+
+主流程在以下节点引入 LLM 决策，不再是纯确定性脚本：
+
+| 节点 | 触发条件 | Agent 动作 |
+|------|----------|------------|
+| 关键帧太少 | 段内关键帧 < 2 张 | 降低 scene_threshold，补抽帧 |
+| 字幕提到"如图" | 检测关键词 | 在对应时间点补截一帧 |
+| 段落质量差 | 生成内容 < 100 字 | 用更大模型重试 |
+| 图片模糊或全黑 | 图片质量检查 | 跳过该帧或补抽邻近帧 |
 
 ---
 
@@ -68,83 +106,32 @@ Codex app-server 或 Vision API（按 settings.toml）
 | 音轨提取 | FFmpeg | 本地，无需 API |
 | 音频分段 | FFmpeg | 精确切分，支持重叠 |
 | 临时存储 | 阿里云 OSS | 百炼需要 HTTP URL；国内稳定 |
-| 语音识别 | 百炼 paraformer-v2 | 中文准确率高，词级时间戳，支持中英混合 |
-| 关键帧提取 | FFmpeg 场景检测 | 本地，零成本 |
+| 语音识别 | 百炼 Qwen ASR | 中文准确率高，词级时间戳，支持中英混合 |
+| 关键帧提取 | FFmpeg showinfo | 本地，提取 pts_time 时间戳 |
 | 关键帧去重 | imagehash（感知哈希） | 去除相似帧，控制关键帧数量 |
-| 视频理解 | Codex app-server 或 Vision API | 按 `settings.toml` 的 `vision_mode` 切换 |
-| 文档生成 | Codex app-server 或 Text API | 按 `settings.toml` 的 `text_mode` 切换 |
+| 分段切分 | SegmentSplitter | SRT 精确切分 + 字数估算 fallback |
+| 视觉理解 | Qwen3-VL-32B / 8B | 按帧价值自动选择模型 |
+| 文档生成 | DeepSeek-V3.2 / Qwen | 低成本，高质量中文 |
 
 ---
 
-## ASR 配置（settings.toml 新增）
+## 成本估算
 
-```toml
-[asr]
-provider = "dashscope"        # dashscope（百炼）/ groq / openai / siliconflow
-model = "paraformer-v2"
-language_hints = ["zh", "en"]
-disfluency_removal = false    # 保留语气词，时间轴更自然
-chunk_duration = 1800         # 分段时长（秒，默认 30 分钟）
-overlap = 4                   # 分段重叠（秒）
-
-[asr.oss]
-bucket = ""                   # 阿里云 OSS Bucket 名称
-region = "oss-cn-hangzhou"    # OSS 节点
-prefix = "framelearn-audio/"  # 上传路径前缀
-url_ttl = 86400               # 签名 URL 有效期（秒，默认 24 小时）
-```
-
----
-
-## 新增 .env 配置
-
-```bash
-# 百炼 API Key（语音识别）
-DASHSCOPE_API_KEY=your_key_here
-
-# 阿里云 OSS（供百炼下载音频）
-OSS_ACCESS_KEY_ID=your_key_here
-OSS_ACCESS_KEY_SECRET=your_key_here
-```
-
----
-
-## 热词支持
-
-处理任务时可选传入热词文件（提升专业术语识别率）：
-
-```bash
-framelearn run video.mp4 --vocab 课程词汇.txt
-```
-
-或在 `settings.toml` 中配置全局热词：
-
-```toml
-[asr]
-hotwords = ["FastAPI", "WebSocket", "PyTorch", "asyncio"]
-```
+| 视频时长 | 方案 | 预计成本 |
+|----------|------|----------|
+| 1 小时 | Qwen ASR + Qwen3-VL-8B + DeepSeek-V3.2 | ~¥3 |
+| 3 小时 | 同上 | ~¥9 |
+| 1 小时 | Qwen ASR + Qwen3-VL-32B（高质量） | ~¥15 |
 
 ---
 
 ## 不做的事（第一版）
 
 - 说话人分离（单人教学不需要）
-- GPT 术语纠错（第二版迭代）
 - 在线视频（YouTube/Bilibili 下载，第二版）
 - Redis/Celery 任务队列（CLI 工具不需要）
 - 字幕在线编辑界面
-
----
-
-## 成本估算
-
-| 环节 | 单价 | 1 小时视频 |
-|------|------|-----------|
-| 百炼 paraformer-v2 | ¥0.005/秒 | ¥18 |
-| 阿里云 OSS 存储 | ¥0.12/GB/月 | 忽略（处理完即删） |
-| OSS 流量 | ¥0.5/GB | < ¥1 |
-| Vision API（关键帧分析） | 约 $0.01/图 × 50 帧 | ~$0.50 |
-| **合计** | | **约 ¥21（~$3）** |
+- 知识图谱 / RAG 问答（后续能力）
 
 ---
 
@@ -155,5 +142,6 @@ hotwords = ["FastAPI", "WebSocket", "PyTorch", "asyncio"]
 | OSS 上传失败 | 本地重试 3 次，失败后报错并清理临时文件 |
 | 百炼识别超时 | 轮询间隔 5 秒，最多等 30 分钟，超时后单段重试 |
 | 关键帧过多 | 感知哈希去重 + 最多 100 帧限制 |
-| Vision API context 超限 | 分批发送，每批 ≤ 20 帧 |
+| 分段太多成本过高 | 增大 segment_duration；纯文本段不发图片 |
+| LLM 生成质量差 | Agent 评审循环，最多重试 2 次后降级保存 |
 | 临时文件残留 | `keep_temp_files = false` 时用 try/finally 保证清理 |
