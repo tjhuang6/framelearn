@@ -115,7 +115,11 @@ def load_text_config() -> ProviderConfig:
 
 
 def load_vision_config() -> ProviderConfig:
-    """Load vision model config from environment variables."""
+    """Load vision model config from environment variables.
+
+    For siliconflow provider, SILICONFLOW_API_KEY / SILICONFLOW_BASE_URL
+    are accepted as aliases for VISION_API_KEY / VISION_BASE_URL.
+    """
     provider_key = os.getenv("VISION_PROVIDER", "gemini")
     provider = PROVIDERS.get(provider_key)
     if not provider:
@@ -123,11 +127,18 @@ def load_vision_config() -> ProviderConfig:
             f"Unknown VISION_PROVIDER: '{provider_key}'. "
             f"Choose from: {', '.join(PROVIDERS)}"
         )
+    # API key: prefer VISION_API_KEY, fall back to provider-specific env var
+    if provider_key == "siliconflow":
+        api_key = os.getenv("VISION_API_KEY") or os.getenv("SILICONFLOW_API_KEY", "")
+        base_url = os.getenv("VISION_BASE_URL") or os.getenv("SILICONFLOW_BASE_URL", provider["base_url"])
+    else:
+        api_key = os.getenv("VISION_API_KEY", "")
+        base_url = os.getenv("VISION_BASE_URL", provider["base_url"])
     return ProviderConfig(
         provider=provider_key,
-        api_key=os.getenv("VISION_API_KEY", ""),
+        api_key=api_key,
         model=os.getenv("VISION_MODEL", provider["default_model"]),
-        base_url=os.getenv("VISION_BASE_URL", provider["base_url"]),
+        base_url=base_url,
     )
 
 
