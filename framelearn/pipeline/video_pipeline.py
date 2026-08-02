@@ -144,6 +144,8 @@ class VideoPipeline:
             # Step 6: Generate documents (both notes and textbook)
             print("📝 生成课堂笔记...")
             generator = DocumentGenerator()
+            doc_mode = config_get("doc_generation.mode", "visual_script")
+
             try:
                 notes_md = generator.generate(
                     keyframes=final_frames_with_time,
@@ -154,16 +156,16 @@ class VideoPipeline:
             except Exception as e:
                 return self._error_result(f"笔记生成失败：{e}")
 
-            print("📖 生成教材版...")
+            print(f"📖 生成{doc_mode}版...")
             try:
-                textbook_md = generator.generate(
+                main_md = generator.generate(
                     keyframes=final_frames_with_time,
                     subtitle=cleaned_subtitle,
                     video_title=self.video_path.stem,
-                    mode="textbook",
+                    mode=doc_mode,
                 )
             except Exception as e:
-                return self._error_result(f"教材生成失败：{e}")
+                return self._error_result(f"文档生成失败：{e}")
 
             # Save both versions
             notes_path = self.output_dir / "notes.md"
