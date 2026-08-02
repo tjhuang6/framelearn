@@ -178,7 +178,14 @@ class DocumentGenerator:
             f"关键帧 {i+1} ({format_timestamp(ts)}): {frame.name}"
             for i, (frame, ts) in enumerate(keyframes[:20])
         )
-        template = _TEXTBOOK_PROMPT if mode == "textbook" else _NOTES_PROMPT
+
+        if mode == "visual_script":
+            template = _VISUAL_SCRIPT_PROMPT
+        elif mode == "notes":
+            template = _NOTES_PROMPT
+        else:
+            template = _TEXTBOOK_PROMPT
+
         return template.format(
             subtitle=subtitle[:12000],
             frames_description=frames_desc,
