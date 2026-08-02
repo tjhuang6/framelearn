@@ -66,13 +66,7 @@ class VideoPipeline:
         temp_dir = Path(tempfile.mkdtemp(prefix="framelearn_"))
 
         try:
-            # Step 1: Extract audio
-            print("🎵 提取音轨...")
-            audio_path = temp_dir / "audio.m4a"
-            if not FFmpegHelper.extract_audio(str(self.video_path), str(audio_path)):
-                return self._error_result("音轨提取失败")
-
-            # Step 2: Transcribe audio (or load existing subtitle)
+            # Step 1 & 2: Transcribe audio (or load existing subtitle)
             print("🎤 语音识别中...")
             if self.subtitle_path is not None:
                 print(f"⏭️  使用已有字幕：{self.subtitle_path}")
@@ -89,6 +83,12 @@ class VideoPipeline:
                     srt=self.subtitle_path.read_text(encoding="utf-8") if self.subtitle_path.suffix == ".srt" else None,
                 )
             else:
+                # Extract audio first (only needed for ASR)
+                print("🎵 提取音轨...")
+                audio_path = temp_dir / "audio.m4a"
+                if not FFmpegHelper.extract_audio(str(self.video_path), str(audio_path)):
+                    return self._error_result("音轨提取失败")
+
                 try:
                     asr = ASRAdapter()  # reads provider from settings.toml
                     transcript = asr.transcribe(str(audio_path), output_dir=self.output_dir)
