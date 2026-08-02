@@ -74,7 +74,7 @@ class VideoPipeline:
             # Step 2: Transcribe audio
             print("🎤 语音识别中...")
             try:
-                asr = ASRAdapter(provider="siliconflow")
+                asr = ASRAdapter()  # reads provider from settings.toml
                 transcript = asr.transcribe(str(audio_path))
             except Exception as e:
                 return self._error_result(f"语音识别失败：{e}")
