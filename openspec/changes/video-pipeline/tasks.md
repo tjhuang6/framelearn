@@ -377,7 +377,7 @@ pytest test/src/test_pipeline.py -v
 
 **子任务**：
 - [x] 实现 `capture_single_frame(video_path, timestamp, output_path)` — 精确截取某秒的帧
-- [ ] 编写单元测试（mock subprocess）
+- [x] 编写单元测试（mock subprocess）
 
 **接口**：
 ```python
