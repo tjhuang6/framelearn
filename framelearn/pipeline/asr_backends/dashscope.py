@@ -106,14 +106,28 @@ class DashscopeBackend:
 
         raise ValueError(f"不支持的 DashScope ASR 模型：{self.model}")
 
-    def transcribe(self, audio_path: Path):
-        """Full pipeline: split → OSS → submit → poll → merge → cleanup."""
+    def transcribe(self, audio_path: Path, output_dir: Optional[Path] = None):
+        """Full pipeline: split → OSS → submit → poll → merge → cleanup.
+
+        Args:
+            audio_path: Path to the audio file to transcribe
+            output_dir: If provided, temp files go to output_dir/temp instead of
+                        a random system tmpdir. Kept when asr.keep_temp_files=true.
+        """
         from framelearn.pipeline.asr_adapter import TranscriptResult, TranscriptSegment
         from framelearn.pipeline.asr_backends.oss_client import OssClient
 
         import shutil
         import tempfile
-        temp_dir = Path(tempfile.mkdtemp(prefix="framelearn_asr_"))
+
+        keep_temp = config_get("asr.keep_temp_files", False)
+
+        if output_dir is not None:
+            temp_dir = Path(output_dir) / "temp"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            temp_dir = Path(tempfile.mkdtemp(prefix="framelearn_asr_"))
+
         chunks: list[AudioChunk] = []
 
         try:
