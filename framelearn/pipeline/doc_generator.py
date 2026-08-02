@@ -237,7 +237,7 @@ class DocumentGenerator:
             template = _TEXTBOOK_PROMPT
 
         return template.format(
-            subtitle=subtitle[:12000],
+            subtitle=subtitle,  # no truncation — caller (generate) handles segmentation
             frames_description=frames_desc,
         )
 
@@ -245,7 +245,6 @@ class DocumentGenerator:
         self,
         keyframes: list[tuple[Path, float]],
         subtitle: str,
-        video_title: str,
         mode: DocMode,
     ) -> str:
         """Generate via codex app-server."""
@@ -276,7 +275,6 @@ class DocumentGenerator:
         self,
         keyframes: list[tuple[Path, float]],
         subtitle: str,
-        video_title: str,
         mode: DocMode,
     ) -> str:
         """Generate via provider_adapter (Vision API)."""
@@ -286,10 +284,10 @@ class DocumentGenerator:
         # Build text prompt
         text_prompt = self._build_prompt(keyframes, subtitle, mode)
 
-        # Encode keyframes to base64 (limit to first 20)
+        # Encode keyframes to base64
         content = [{"type": "text", "text": text_prompt}]
 
-        for frame_path, timestamp in keyframes[:20]:
+        for frame_path, timestamp in keyframes:
             if not frame_path.exists():
                 continue
             try:
