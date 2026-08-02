@@ -183,7 +183,27 @@ class AgentKeyframeSelector:
             )
         except Exception:
             # Fallback to text-only evaluation on failure
-            return self._evaluate_text_only(frame_path, context)
+            return self._evaluate_text_only(context)
+
+    def _evaluate_text_only(self, context: str) -> KeyframeEvaluation:
+        """Fallback: evaluate using subtitle text only (no image)."""
+        prompt = (
+            f"视频片段的字幕内容：\n\"{context[:200]}\"\n\n"
+            "根据这段字幕，判断此时的画面是否值得截图保留在教材中：\n"
+            "- 字幕提到代码、PPT、图表、终端命令、具体操作 → 保留\n"
+            "- 字幕只是纯口头讲解、过渡语句、寒暄或背景介绍 → 丢弃\n\n"
+            "返回 JSON（只返回 JSON，不要其他内容）：\n"
+            "{\"keep\": true/false, \"reason\": \"理由\"}"
+        )
+        try:
+            response = self._call_text_llm(prompt)
+            data = json.loads(response.strip())
+            return KeyframeEvaluation(
+                keep=bool(data.get("keep", True)),
+                reason=f"[文字fallback] {data.get('reason', '')}",
+            )
+        except Exception:
+            return KeyframeEvaluation(keep=True, reason="评估失败，默认保留")
 
     def _call_text_llm(self, prompt: str) -> str:
         """Call text LLM for decision-making (fast, no images)."""
