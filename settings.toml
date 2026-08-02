@@ -16,7 +16,7 @@ vision_mode = "api"
 
 # Vision API 模式配置（当 vision_mode = "api" 时生效）
 vision_provider = "siliconflow"
-vision_model = "Qwen/Qwen3-VL-32B-Instruct"
+vision_model = "Qwen/Qwen3.6-35B-A3B"
 
 # ASR 场景：音频转文字（只支持 api）
 asr_mode = "api"
