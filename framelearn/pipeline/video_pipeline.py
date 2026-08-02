@@ -75,7 +75,7 @@ class VideoPipeline:
             print("🎤 语音识别中...")
             try:
                 asr = ASRAdapter()  # reads provider from settings.toml
-                transcript = asr.transcribe(str(audio_path))
+                transcript = asr.transcribe(str(audio_path), output_dir=self.output_dir)
             except Exception as e:
                 return self._error_result(f"语音识别失败：{e}")
 
