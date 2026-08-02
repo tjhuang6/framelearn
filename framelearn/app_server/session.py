@@ -207,6 +207,8 @@ class AppServerSession:
             if event.get("method") == "item/completed":
                 item = (event.get("params") or {}).get("item") or {}
                 if item.get("type") == "fileChange":
+                    import json as _json
+                    print(f"[DEBUG fileChange] {_json.dumps(item, ensure_ascii=False)[:500]}")
                     for ch in (item.get("changes") or []):
                         path = ch.get("path") or ch.get("file") or ""
                         if path:
