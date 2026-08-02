@@ -184,21 +184,16 @@ class AgentKeyframeSelector:
             return KeyframeEvaluation(keep=True, reason="LLM 评估失败，默认保留")
 
     def _call_text_llm(self, prompt: str) -> str:
-        """Call text LLM via configured backend."""
+        """Call text LLM for decision-making (fast, no images)."""
         if self.vision_mode == "appserver":
             from framelearn.app_server.session import AppServerSession
             session = AppServerSession(workspace=".")
             result = session.run_turn(prompt)
             session.close()
-            return result.final_text or ""
+            return result.final_text or "{}"
         else:
-            from framelearn.provider_adapter import ProviderAdapter
-            adapter = ProviderAdapter()
-            return adapter.chat(
-                messages=[{"role": "user", "content": prompt}],
-                provider=self.vision_provider,
-                model=self.vision_model,
-            )
+            from framelearn.provider_adapter import call_text_llm
+            return call_text_llm(prompt, max_tokens=200)
 
     def _call_vision_llm(self, prompt: str, img_b64: str) -> str:
         """Call vision LLM with text + image."""
