@@ -2,16 +2,21 @@
 
 import shutil
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from framelearn.config import get as config_get
 from framelearn.pipeline.asr_adapter import ASRAdapter
+from framelearn.pipeline.cache_manifest import create_manifest, CacheManifest
 from framelearn.pipeline.doc_generator import DocumentGenerator
 from framelearn.pipeline.ffmpeg_helper import FFmpegHelper
 from framelearn.pipeline.keyframe_dedup import KeyframeDeduplicator
+from framelearn.pipeline.run_report import RunReporter, get_reporter, set_reporter, reset_reporter
 from framelearn.pipeline.subtitle_cleaner import SubtitleCleaner
+
+if TYPE_CHECKING:
+    from framelearn.privacy_tracker import PrivacyTracker
 
 
 @dataclass
@@ -22,6 +27,7 @@ class PipelineResult:
     keyframes: list[Path]
     subtitle_text: str
     error: Optional[str] = None
+    warnings: list[str] = field(default_factory=list)
 
 
 class VideoPipeline:
@@ -46,6 +52,41 @@ class VideoPipeline:
 
     def run(self) -> PipelineResult:
         """Execute the full pipeline."""
+        from framelearn.privacy_tracker import PrivacyTracker, set_tracker, reset_tracker
+        from framelearn.config import get as config_get
+        
+        print(f"📹 开始处理视频：{self.video_path.name}")
+
+        # Initialize privacy tracker
+        privacy_hints_enabled = config_get("runtime.privacy_hints", False)
+        tracker = PrivacyTracker(enabled=privacy_hints_enabled)
+        set_tracker(tracker)
+
+        # Initialize run reporter — collects every fault-tolerance event
+        # (failed segments, fallbacks, skipped frames, cache hits) so the
+        # degradation is visible in PipelineResult.warnings and in
+        # <output_dir>/run-report.json, instead of only ever hitting stdout.
+        reporter = RunReporter(video_name=self.video_path.name)
+        set_reporter(reporter)
+
+        try:
+            result = self._run_internal(tracker)
+            result.warnings = reporter.get_warnings()
+            status = "error" if result.error else "success"
+            reporter.write_report(
+                self.output_dir / "run-report.json",
+                status=status,
+                error=result.error,
+            )
+            return result
+        finally:
+            # Show privacy summary at the end
+            tracker.show_summary()
+            reset_tracker()
+            reset_reporter()
+
+    def _run_internal(self, tracker: 'PrivacyTracker') -> PipelineResult:
+        """Internal run method with privacy tracking."""
         print(f"📹 开始处理视频：{self.video_path.name}")
 
         # Step 0: Check FFmpeg
@@ -82,12 +123,46 @@ class VideoPipeline:
                     srt=self.subtitle_path.read_text(encoding="utf-8") if self.subtitle_path.suffix == ".srt" else None,
                 )
             else:
-                # Check for cached subtitle first
+                # Check for cached subtitle with manifest validation
                 cached_srt = src_dir / "subtitle.srt"
                 cached_txt = src_dir / "subtitle.txt"
-
-                if cached_srt.exists() and cached_txt.exists():
+                manifest_path = src_dir / "subtitle_manifest.json"
+                
+                # Load and validate manifest
+                use_cache = False
+                if cached_srt.exists() and cached_txt.exists() and manifest_path.exists():
+                    manifest = CacheManifest.load(manifest_path)
+                    if manifest:
+                        # Validate against current video file and config
+                        # For subtitle, we only care about video file and ASR config
+                        asr = ASRAdapter()
+                        use_cache = manifest.validate(
+                            video_path=self.video_path,
+                            subtitle_path=self.subtitle_path,
+                            config_get_fn=config_get,
+                            mode="subtitle",
+                            asr_provider=asr.provider,
+                            asr_model=asr.model,
+                        )
+                        if not use_cache:
+                            print("⚠️  字幕缓存失效（输入或配置已变更）")
+                            get_reporter().record_fallback(
+                                "video_pipeline.subtitle_cache",
+                                "字幕缓存失效（输入或配置已变更），将重新转录",
+                            )
+                    else:
+                        print("⚠️  字幕 manifest 损坏")
+                        get_reporter().record_fallback(
+                            "video_pipeline.subtitle_cache",
+                            "字幕 manifest 损坏，将重新转录",
+                        )
+                
+                if use_cache:
                     print("⏭️  使用已缓存字幕...")
+                    get_reporter().record_cache_hit(
+                        "video_pipeline.subtitle_cache",
+                        "命中字幕缓存，跳过 ASR",
+                    )
                     from framelearn.pipeline.asr_adapter import TranscriptResult
                     transcript = TranscriptResult(
                         segments=[],
@@ -104,7 +179,36 @@ class VideoPipeline:
 
                     try:
                         asr = ASRAdapter()  # reads provider from settings.toml
+                        
+                        # Track ASR usage
+                        if asr.provider == "dashscope":
+                            tracker.add_service(
+                                "oss_upload",
+                                "阿里云 OSS（临时音频切片，任务完成后删除）"
+                            )
+                            tracker.add_service(
+                                "asr_dashscope",
+                                f"阿里云 DashScope ASR ({asr.model})"
+                            )
+                        elif asr.provider == "siliconflow":
+                            tracker.add_service(
+                                "asr_siliconflow",
+                                f"硅基流动 SenseVoice ({asr.model})"
+                            )
+                        
                         transcript = asr.transcribe(str(audio_path), output_dir=self.output_dir)
+                        
+                        # Create subtitle manifest after successful ASR
+                        subtitle_manifest = create_manifest(
+                            video_path=self.video_path,
+                            subtitle_path=None,
+                            config_get_fn=config_get,
+                            mode="subtitle",
+                            asr_provider=asr.provider,
+                            asr_model=asr.model,
+                        )
+                        subtitle_manifest.save(src_dir / "subtitle_manifest.json")
+                        print(f"✅ 字幕 manifest 已保存")
                     except Exception as e:
                         return self._error_result(f"语音识别失败：{e}")
 
@@ -126,19 +230,54 @@ class VideoPipeline:
             # Step 4: Extract keyframes
             print("🖼️  提取关键帧...")
 
-            # Check for cached keyframes
+            # Check for cached keyframes with manifest validation
             cached_frames = sorted(src_dir.glob("frame_*.jpg"))
-            if cached_frames:
+            keyframe_manifest_path = src_dir / "keyframe_manifest.json"
+            
+            use_keyframe_cache = False
+            if cached_frames and keyframe_manifest_path.exists():
+                kf_manifest = CacheManifest.load(keyframe_manifest_path)
+                if kf_manifest:
+                    use_keyframe_cache = kf_manifest.validate(
+                        video_path=self.video_path,
+                        subtitle_path=self.subtitle_path,
+                        config_get_fn=config_get,
+                        mode="keyframe",
+                        asr_provider="n/a",
+                        asr_model="n/a",
+                    )
+                    if not use_keyframe_cache:
+                        print("⚠️  关键帧缓存失效（输入或配置已变更）")
+                        get_reporter().record_fallback(
+                            "video_pipeline.keyframe_cache",
+                            "关键帧缓存失效（输入或配置已变更），将重新提取",
+                        )
+            
+            if use_keyframe_cache and cached_frames:
                 print(f"⏭️  使用已缓存的 {len(cached_frames)} 个关键帧...")
+                get_reporter().record_cache_hit(
+                    "video_pipeline.keyframe_cache",
+                    f"命中关键帧缓存（{len(cached_frames)} 帧），跳过提取与去重",
+                )
                 final_frames = cached_frames
                 final_frames_with_time = []
                 for frame_path in cached_frames:
-                    # Parse timestamp from filename: frame_00h01m30s.jpg
-                    name = frame_path.stem  # "frame_00h01m30s"
-                    time_str = name.split("_", 1)[1]  # "00h01m30s"
-                    h, m, s = time_str.replace("h", " ").replace("m", " ").replace("s", "").split()
-                    timestamp = int(h) * 3600 + int(m) * 60 + int(s)
-                    final_frames_with_time.append((frame_path, float(timestamp)))
+                    # Parse timestamp from filename with new format:
+                    # frame_00h01m30s250ms_scene_001.jpg or frame_00h01m30s250ms_interval_001.jpg
+                    name = frame_path.stem  # "frame_00h01m30s250ms_scene_001"
+                    parts = name.split("_", 1)
+                    if len(parts) < 2:
+                        continue
+                    time_part = parts[1].split("_")[0]  # "00h01m30s250ms"
+                    # Extract h, m, s, ms
+                    time_part = time_part.replace("ms", "")
+                    h_part, rest = time_part.split("h")
+                    m_part, rest = rest.split("m")
+                    s_part = rest.split("s")[0]
+                    ms_part = rest.split("s")[1] if "s" in rest and rest.split("s")[1] else "0"
+                    h, m, s, ms = int(h_part), int(m_part), int(s_part), int(ms_part)
+                    timestamp = h * 3600 + m * 60 + s + ms / 1000.0
+                    final_frames_with_time.append((frame_path, timestamp))
             else:
                 frames_dir = temp_dir / "frames"
                 raw_frames = FFmpegHelper.extract_keyframes(
@@ -165,6 +304,18 @@ class VideoPipeline:
                     shutil.copy(frame_path, dest)
                     final_frames.append(dest)
                     final_frames_with_time.append((dest, timestamp))
+                
+                # Create keyframe manifest
+                keyframe_manifest = create_manifest(
+                    video_path=self.video_path,
+                    subtitle_path=self.subtitle_path,
+                    config_get_fn=config_get,
+                    mode="keyframe",
+                    asr_provider="n/a",
+                    asr_model="n/a",
+                )
+                keyframe_manifest.save(src_dir / "keyframe_manifest.json")
+                print(f"✅ 关键帧 manifest 已保存")
 
             print(f"✅ 保留 {len(final_frames)} 个关键帧")
 
@@ -172,6 +323,17 @@ class VideoPipeline:
             if config_get("agent.keyframe_selection", False):
                 print("🤖 Agent 关键帧选择...")
                 from framelearn.pipeline.agent_keyframe_selector import AgentKeyframeSelector
+                
+                # Track vision API usage
+                vision_mode = config_get("runtime.vision_mode", "appserver")
+                if vision_mode == "api":
+                    vision_provider = config_get("runtime.vision_provider", "unknown")
+                    vision_model = config_get("runtime.vision_model", "unknown")
+                    tracker.add_service(
+                        "vision_api_keyframe",
+                        f"Vision API 关键帧分析 ({vision_provider}/{vision_model})"
+                    )
+                
                 selector = AgentKeyframeSelector()
                 final_frames_with_time = selector.select(
                     video_path=str(self.video_path),
@@ -185,6 +347,48 @@ class VideoPipeline:
             # Step 6: Generate documents
             generator = DocumentGenerator()
             doc_mode = config_get("doc_generation.mode", "visual_script")
+            
+            # Track document generation API usage
+            text_mode = config_get("runtime.text_mode", "appserver")
+            if text_mode == "api":
+                from framelearn.provider_adapter import load_text_config
+                try:
+                    text_config = load_text_config()
+                    tracker.add_service(
+                        "text_api_docgen",
+                        f"Text API 文档生成 ({text_config.provider}/{text_config.model})"
+                    )
+                except Exception:
+                    tracker.add_service("text_api_docgen", "Text API 文档生成")
+            elif text_mode == "appserver":
+                tracker.add_service(
+                    "codex_docgen",
+                    "Codex app-server 文档生成"
+                )
+            
+            # Track session persistence
+            persist_enabled = config_get("runtime.persist_sessions", True)
+            if persist_enabled and text_mode == "appserver":
+                import os
+                db_path = os.getenv(
+                    "FRAMELEARN_SESSION_DB",
+                    str(Path.home() / ".framelearn" / "sessions.db")
+                )
+                tracker.add_service(
+                    "session_db",
+                    f"本地 SQLite 会话持久化 ({db_path})"
+                )
+            
+            # Pass ASR info to generator for manifest
+            asr_provider = "unknown"
+            asr_model = "unknown"
+            if not self.subtitle_path:
+                try:
+                    asr = ASRAdapter()
+                    asr_provider = asr.provider
+                    asr_model = asr.model
+                except Exception:
+                    pass
 
             # Collect SRT text for precise time-based segmentation
             srt_content = None
@@ -202,6 +406,10 @@ class VideoPipeline:
                     mode="notes",
                     srt_text=srt_content,
                     output_dir=self.output_dir,
+                    video_path=self.video_path,
+                    subtitle_path=self.subtitle_path,
+                    asr_provider=asr_provider,
+                    asr_model=asr_model,
                 )
             except Exception as e:
                 return self._error_result(f"笔记生成失败：{e}")
@@ -215,6 +423,10 @@ class VideoPipeline:
                     mode=doc_mode,
                     srt_text=srt_content,
                     output_dir=self.output_dir,
+                    video_path=self.video_path,
+                    subtitle_path=self.subtitle_path,
+                    asr_provider=asr_provider,
+                    asr_model=asr_model,
                 )
             except Exception as e:
                 return self._error_result(f"文档生成失败：{e}")
