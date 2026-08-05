@@ -203,7 +203,7 @@ class FFmpegHelper:
         except (subprocess.CalledProcessError, ValueError):
             pass
 
-        # Merge and rename with timestamps
+        # Merge and rename with timestamps (millisecond precision + source tag)
         all_frames_with_time = []
 
         # Scene frames
@@ -214,11 +214,12 @@ class FFmpegHelper:
                 h = int(ts // 3600)
                 m = int((ts % 3600) // 60)
                 s = int(ts % 60)
-                new_name = output_dir / f"frame_{h:02d}h{m:02d}m{s:02d}s.jpg"
+                ms = round((ts % 1) * 1000)
+                new_name = output_dir / f"frame_{h:02d}h{m:02d}m{s:02d}s{ms:03d}ms_scene_{i+1:03d}.jpg"
                 frame_file.rename(new_name)
                 all_frames_with_time.append((new_name, ts))
 
-        # Fallback frames
+        # Fallback frames (interval-based)
         fallback_files = sorted(fallback_dir.glob("*.jpg"))
         for i, frame_file in enumerate(fallback_files):
             if i < len(fallback_frames):
@@ -226,7 +227,8 @@ class FFmpegHelper:
                 h = int(ts // 3600)
                 m = int((ts % 3600) // 60)
                 s = int(ts % 60)
-                new_name = output_dir / f"frame_{h:02d}h{m:02d}m{s:02d}s.jpg"
+                ms = round((ts % 1) * 1000)
+                new_name = output_dir / f"frame_{h:02d}h{m:02d}m{s:02d}s{ms:03d}ms_interval_{i+1:03d}.jpg"
                 frame_file.rename(new_name)
                 all_frames_with_time.append((new_name, ts))
 

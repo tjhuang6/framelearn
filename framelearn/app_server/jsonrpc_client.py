@@ -194,25 +194,69 @@ class JsonRpcStdioClient:
 
     @staticmethod
     def _build_env(override: Optional[dict]) -> dict:
-        """Build subprocess environment.
+        """Build subprocess environment using allowlist.
 
-        Keeps the user's real HOME so that git/gh/npm/aws can find configs.
-        Only passes CODEX_HOME if provided, to optionally isolate Codex state.
-        Does NOT inherit secrets that Codex doesn't need.
+        Only passes essential system variables and Codex-specific config.
+        Blocks all API keys, secrets, and cloud credentials by default.
+
+        Allowlist categories:
+        1. Core system: PATH, HOME, USER, SHELL, TMPDIR, etc.
+        2. Locale/display: LANG, LC_*, TERM, DISPLAY
+        3. Development tools: Git, SSH, GPG agent sockets
+        4. Codex-specific: CODEX_HOME, CODEX_*
+        5. Explicitly allowed via override parameter
         """
-        # Start from a clean copy of the current env
-        env = os.environ.copy()
-
-        # Strip secrets that the Codex subprocess should not inherit
-        _STRIP_KEYS = {
-            "TEXT_API_KEY",
-            "VISION_API_KEY",
-            "DATABASE_URL",
-            "WEBHOOK_SECRET",
+        # Allowlist of environment variables safe to pass to Codex subprocess
+        _ALLOWED_KEYS = {
+            # Core system
+            "PATH",
+            "HOME",
+            "USER",
+            "LOGNAME",
+            "SHELL",
+            "TMPDIR",
+            "TEMP",
+            "TMP",
+            # Locale and display
+            "LANG",
+            "LC_ALL",
+            "LC_CTYPE",
+            "LC_MESSAGES",
+            "TERM",
+            "DISPLAY",
+            "COLORTERM",
+            # Development tools
+            "SSH_AUTH_SOCK",
+            "SSH_AGENT_PID",
+            "GPG_AGENT_INFO",
+            "GIT_AUTHOR_NAME",
+            "GIT_AUTHOR_EMAIL",
+            "GIT_COMMITTER_NAME",
+            "GIT_COMMITTER_EMAIL",
+            # Node.js
+            "NODE_ENV",
+            # Python
+            "PYTHONPATH",
+            "PYTHONIOENCODING",
+            "VIRTUAL_ENV",
+            # XDG
+            "XDG_CONFIG_HOME",
+            "XDG_DATA_HOME",
+            "XDG_CACHE_HOME",
         }
-        for key in _STRIP_KEYS:
-            env.pop(key, None)
 
+        # Build environment from allowlist
+        env = {}
+        for key in _ALLOWED_KEYS:
+            if key in os.environ:
+                env[key] = os.environ[key]
+
+        # Include any CODEX_* variables
+        for key, value in os.environ.items():
+            if key.startswith("CODEX_"):
+                env[key] = value
+
+        # Apply explicit overrides (caller takes responsibility)
         if override:
             env.update(override)
 

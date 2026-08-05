@@ -5,6 +5,8 @@ from pathlib import Path
 import imagehash
 from PIL import Image
 
+from framelearn.pipeline.run_report import get_reporter
+
 
 class KeyframeDeduplicator:
     """Remove visually similar keyframes using perceptual hashing."""
@@ -56,8 +58,15 @@ class KeyframeDeduplicator:
                     if len(unique_frames) >= max_frames:
                         break
 
-            except Exception:
-                # If hashing fails, skip this frame
+            except Exception as e:
+                # If hashing fails, skip this frame — but record it so the
+                # skip is visible in the run report instead of silently
+                # disappearing.
+                get_reporter().record_skipped_frame(
+                    "keyframe_dedup",
+                    f"帧 {frame_path.name} 计算 pHash 失败，已跳过：{e}",
+                    detail={"frame": str(frame_path), "timestamp": timestamp},
+                )
                 continue
 
         # Ensure at least 1 frame

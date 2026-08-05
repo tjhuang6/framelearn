@@ -1,9 +1,16 @@
 """Document generator using Codex app-server or Vision API."""
 
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 
 from framelearn.config import get as config_get
+from framelearn.pipeline.cache_manifest import (
+    create_manifest,
+    CacheManifest,
+    mark_segment_completed,
+    get_completed_segments,
+)
+from framelearn.pipeline.run_report import get_reporter
 
 
 # ── 笔记版 prompt ─────────────────────────────────────────────────
@@ -104,7 +111,7 @@ _VISUAL_SCRIPT_PROMPT = """你是视频字幕转图文讲稿助手。
    - 不要把"先讲 A 再讲 B"重排成"B 的知识点、A 的知识点"
 
 2. **插入关键帧**
-   - 在讲到对应时间时插入：`![](src/frame_00h03m45s.jpg)`
+   - 在讲到对应时间时插入：`![](src/frame_00h03m45s678ms_scene_001.jpg)`
    - 如果字幕提到"看这张图"、"如图所示"，立即在此处插图
    - 如果附近没有关键帧，可以说明"（讲师展示了画面，但未被抽帧）"
 
@@ -124,7 +131,7 @@ _VISUAL_SCRIPT_PROMPT = """你是视频字幕转图文讲稿助手。
 
 6. **图片说明**
    - 每张图后加一句话说明图片内容
-   - 例：`![](src/frame_00h03m45s.jpg)`
+   - 例：`![](src/frame_00h03m45s678ms_scene_001.jpg)`
    - *图为 FastAPI 路由代码示例*
 
 直接输出 Markdown，不要解释。
@@ -159,6 +166,10 @@ class DocumentGenerator:
         mode: DocMode = "visual_script",
         srt_text: str | None = None,
         output_dir: Path | None = None,
+        video_path: Path | None = None,
+        subtitle_path: Path | None = None,
+        asr_provider: str = "unknown",
+        asr_model: str = "unknown",
     ) -> str:
         """Generate markdown tutorial.
 
@@ -172,6 +183,10 @@ class DocumentGenerator:
             mode: "visual_script" / "notes" / "textbook"
             srt_text: Raw SRT content for precise time-based splitting
             output_dir: Output directory for segment caching (optional)
+            video_path: Original video file path for manifest
+            subtitle_path: External subtitle file path for manifest
+            asr_provider: ASR provider name for manifest
+            asr_model: ASR model name for manifest
 
         Returns:
             Generated markdown content
@@ -197,20 +212,70 @@ class DocumentGenerator:
 
             # Setup segment cache directory (separate by mode)
             segments_dir = None
+            manifest_path = None
+            completed_segments = set()
+            
             if output_dir:
                 segments_dir = output_dir / f"segments_{mode}"
                 segments_dir.mkdir(exist_ok=True)
+                manifest_path = segments_dir / "manifest.json"
+                
+                # Load or create manifest
+                if manifest_path.exists():
+                    manifest = CacheManifest.load(manifest_path)
+                    if manifest and video_path:
+                        # Validate manifest
+                        if manifest.validate(
+                            video_path=video_path,
+                            subtitle_path=subtitle_path,
+                            config_get_fn=config_get,
+                            mode=mode,
+                            asr_provider=asr_provider,
+                            asr_model=asr_model,
+                        ):
+                            completed_segments = get_completed_segments(manifest_path)
+                            print(f"   ✅ Manifest 有效，已完成 {len(completed_segments)}/{len(segments)} 段")
+                        else:
+                            print("   ⚠️  Manifest 失效（输入或配置已变更），重新生成")
+                            get_reporter().record_fallback(
+                                "doc_generator.segment_manifest",
+                                f"段缓存 manifest 失效（{mode}），已清除并重新生成所有段",
+                                detail={"mode": mode},
+                            )
+                            # Clear old cache
+                            for f in segments_dir.glob("seg_*.md"):
+                                f.unlink()
+                            manifest_path.unlink()
+                else:
+                    # Create new manifest
+                    if video_path:
+                        manifest = create_manifest(
+                            video_path=video_path,
+                            subtitle_path=subtitle_path,
+                            config_get_fn=config_get,
+                            mode=mode,
+                            asr_provider=asr_provider,
+                            asr_model=asr_model,
+                            segments_total=len(segments),
+                        )
+                        manifest.save(manifest_path)
+                        print(f"   ✅ 创建新 manifest")
 
             quality_review = config_get("agent.quality_review", False)
             parts = []
             for seg in segments:
                 seg_num = seg.index + 1
 
-                # Check cache
-                if segments_dir:
+                # Check cache (with manifest validation)
+                if segments_dir and seg.index in completed_segments:
                     cache_file = segments_dir / f"seg_{seg_num:03d}.md"
                     if cache_file.exists():
                         print(f"   ⏭️  第 {seg_num}/{len(segments)} 段已缓存，跳过...")
+                        get_reporter().record_cache_hit(
+                            "doc_generator.segment_cache",
+                            f"第 {seg_num}/{len(segments)} 段（{mode}）命中缓存",
+                            detail={"segment_index": seg.index, "mode": mode},
+                        )
                         parts.append(cache_file.read_text(encoding="utf-8"))
                         continue
 
@@ -235,12 +300,25 @@ class DocumentGenerator:
                         _time.sleep(wait)
 
                 if last_err:
+                    # Mark segment as failed in manifest
+                    if manifest_path:
+                        mark_segment_completed(manifest_path, seg.index, error=str(last_err))
+                    get_reporter().record_failed_segment(
+                        "doc_generator",
+                        seg_num,
+                        str(last_err),
+                        detail={"mode": mode, "start_time": seg.start_time, "end_time": seg.end_time},
+                    )
                     raise RuntimeError(f"段 {seg_num} 重试 3 次均失败：{last_err}")
 
                 # Save to cache
                 if segments_dir:
                     cache_file = segments_dir / f"seg_{seg_num:03d}.md"
                     cache_file.write_text(part, encoding="utf-8")
+                    
+                    # Mark segment as completed in manifest
+                    if manifest_path:
+                        mark_segment_completed(manifest_path, seg.index)
 
                 parts.append(part)
             return f"# {video_title}\n\n" + "\n\n---\n\n".join(parts)
@@ -326,6 +404,11 @@ class DocumentGenerator:
 
         # Final fallback: preserve subtitle as-is
         print("   ⚠️  3 次重试后仍不通过，降级保存原始字幕")
+        get_reporter().record_fallback(
+            "doc_generator.quality_review",
+            "3 次质量评审均未通过，降级保存原始字幕（未生成润色文档）",
+            detail={"mode": mode, "subtitle_preview": subtitle[:80]},
+        )
         return subtitle
 
     def _build_prompt(
@@ -360,19 +443,68 @@ class DocumentGenerator:
             frames_description=frames_desc,
         )
 
+    def _build_multimodal_inputs(
+        self,
+        keyframes: list[tuple[Path, float]],
+        subtitle: str,
+        mode: DocMode,
+    ) -> list[dict]:
+        """Build structured turn inputs with text + localImage for app-server."""
+        def format_timestamp(seconds: float) -> str:
+            h = int(seconds // 3600)
+            m = int((seconds % 3600) // 60)
+            s = int(seconds % 60)
+            if h > 0:
+                return f"{h:02d}:{m:02d}:{s:02d}"
+            else:
+                return f"{m:02d}:{s:02d}"
+
+        # Select template based on mode
+        if mode == "visual_script":
+            template = _VISUAL_SCRIPT_PROMPT
+        elif mode == "notes":
+            template = _NOTES_PROMPT
+        else:
+            template = _TEXTBOOK_PROMPT
+
+        # Build instruction with subtitle but WITHOUT frame file names
+        # (actual frames will be sent as localImage)
+        instruction = template.format(
+            subtitle=subtitle,
+            frames_description="(关键帧将以图片形式提供)",
+        )
+
+        inputs: list[dict] = [{"type": "text", "text": instruction}]
+
+        # Add each keyframe with timestamp and localImage
+        for i, (frame_path, ts) in enumerate(keyframes[:20]):
+            timestamp = format_timestamp(ts)
+            inputs.append({
+                "type": "text",
+                "text": f"\n关键帧 {i+1} [{timestamp}]:",
+            })
+            # Send absolute path as localImage
+            inputs.append({
+                "type": "localImage",
+                "path": str(frame_path.resolve()),
+            })
+
+        return inputs
+
     def _generate_via_appserver(
         self,
         keyframes: list[tuple[Path, float]],
         subtitle: str,
         mode: DocMode,
     ) -> str:
-        """Generate via codex app-server."""
+        """Generate via codex app-server with multimodal input."""
         from framelearn.app_server.session import AppServerSession
 
-        prompt = self._build_prompt(keyframes, subtitle, mode)
+        # Build structured multimodal inputs
+        inputs = self._build_multimodal_inputs(keyframes, subtitle, mode)
 
         session = AppServerSession(workspace=".")
-        result = session.run_turn(prompt)
+        result = session.run_turn(inputs=inputs)
         session.close()
 
         if result.error:
@@ -388,6 +520,11 @@ class DocumentGenerator:
                     continue
 
         # Fallback: return whatever final_text we got
+        get_reporter().record_fallback(
+            "doc_generator.appserver",
+            "未找到写入的 .md 文件，回退为使用 final_text 作为文档内容",
+            detail={"mode": mode, "written_files": list(result.written_files)},
+        )
         return result.final_text or ""
 
     def _generate_via_api(

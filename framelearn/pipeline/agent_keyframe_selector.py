@@ -14,6 +14,7 @@ from pathlib import Path
 from framelearn.config import get as config_get
 from framelearn.pipeline.asr_adapter import TranscriptSegment
 from framelearn.pipeline.ffmpeg_helper import FFmpegHelper
+from framelearn.pipeline.run_report import get_reporter
 
 
 # Keywords that suggest a screenshot is needed
@@ -94,11 +95,12 @@ class AgentKeyframeSelector:
             if any(abs(ts - e) < 2.0 for e in existing_ts):
                 continue
 
-            # Step 3: Capture frame with FFmpeg
+            # Step 3: Capture frame with FFmpeg (with millisecond precision + agent tag)
             h = int(ts // 3600)
             m = int((ts % 3600) // 60)
             s = int(ts % 60)
-            frame_name = f"frame_{h:02d}h{m:02d}m{s:02d}s.jpg"
+            ms = round((ts % 1) * 1000)
+            frame_name = f"frame_{h:02d}h{m:02d}m{s:02d}s{ms:03d}ms_agent_{len(selected)+1:03d}.jpg"
             frame_path = output_dir / frame_name
 
             print(f"   📸 补帧 {frame_name}（{seg.text[:30]}...）")
@@ -107,6 +109,11 @@ class AgentKeyframeSelector:
             )
             if not success:
                 print(f"   ⚠️  截帧失败：{frame_name}")
+                get_reporter().record_skipped_frame(
+                    "agent_keyframe_selector",
+                    f"截帧失败，已跳过：{frame_name}",
+                    detail={"timestamp": ts, "subtitle": seg.text[:60]},
+                )
                 continue
 
             # Step 4: LLM evaluates the image
@@ -148,8 +155,13 @@ class AgentKeyframeSelector:
                 need_frame=bool(data.get("need_frame", False)),
                 reason=data.get("reason", ""),
             )
-        except Exception:
+        except Exception as e:
             # Fallback: trust the heuristic
+            get_reporter().record_fallback(
+                "agent_keyframe_selector.decide",
+                f"LLM 决策失败，启发式规则触发（补帧）：{e}",
+                detail={"subtitle": seg.text[:60]},
+            )
             return KeyframeDecision(
                 timestamp=seg.start,
                 need_frame=True,
@@ -176,8 +188,13 @@ class AgentKeyframeSelector:
                 keep=bool(data.get("keep", True)),
                 reason=data.get("reason", ""),
             )
-        except Exception:
+        except Exception as e:
             # Fallback to text-only evaluation on failure
+            get_reporter().record_fallback(
+                "agent_keyframe_selector.evaluate",
+                f"视觉评估失败，降级为文字评估：{e}",
+                detail={"frame": str(frame_path), "subtitle": context[:60]},
+            )
             return self._evaluate_text_only(context)
 
     def _evaluate_text_only(self, context: str) -> KeyframeEvaluation:
@@ -197,7 +214,12 @@ class AgentKeyframeSelector:
                 keep=bool(data.get("keep", True)),
                 reason=f"[文字fallback] {data.get('reason', '')}",
             )
-        except Exception:
+        except Exception as e:
+            get_reporter().record_fallback(
+                "agent_keyframe_selector.evaluate_text_only",
+                f"视觉与文字评估均失败，默认保留该帧：{e}",
+                detail={"subtitle": context[:60]},
+            )
             return KeyframeEvaluation(keep=True, reason="评估失败，默认保留")
 
     def _call_text_llm(self, prompt: str) -> str:

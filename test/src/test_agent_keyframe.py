@@ -236,7 +236,8 @@ class TestAgentKeyframeSelectorSelect:
 
         with patch("framelearn.pipeline.agent_keyframe_selector.FFmpegHelper") as mock_ff:
             mock_ff.capture_single_frame.return_value = True
-            frame = tmp_path / "frame_00h01m00s.jpg"
+            # 新命名格式：毫秒精度 + 来源标记 + 序号
+            frame = tmp_path / "frame_00h01m00s000ms_agent_001.jpg"
             frame.write_bytes(b"\xff\xd8\xff\xd9")
 
             result = self.sel.select("v.mp4", segments, tmp_path)
