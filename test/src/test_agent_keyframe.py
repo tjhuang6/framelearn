@@ -206,37 +206,34 @@ class TestAgentKeyframeSelectorSelect:
         assert result == []
 
     def test_select_captures_and_keeps_frame(self, tmp_path):
-        """段落有视觉关键词 → 截帧 → LLM 判断保留。"""
+        """段落有视觉关键词 → 截帧 → agent 判断保留。"""
         segments = [make_segment("如图所示", 30.0, 35.0)]
 
         self.sel._call_text_llm = Mock(
             return_value=json.dumps({"need_frame": True, "reason": "提到图"})
         )
-        self.sel._call_vision_llm = Mock(
-            return_value=json.dumps({"keep": True, "reason": "PPT"})
-        )
 
         with patch("framelearn.pipeline.agent_keyframe_selector.FFmpegHelper") as mock_ff:
             mock_ff.capture_single_frame.return_value = True
-            # Simulate the frame file existing after capture
             expected_frame = tmp_path / "frame_00h00m30s.jpg"
             expected_frame.write_bytes(b"\xff\xd8\xff\xd9")
 
-            result = self.sel.select("v.mp4", segments, tmp_path)
+            with patch(
+                "framelearn.pipeline.agent_keyframe_selector.VisionAgentEvaluator"
+            ) as MockEval:
+                MockEval.return_value.evaluate.return_value = MagicMock(keep=True, reason="PPT")
+                result = self.sel.select("v.mp4", segments, tmp_path)
 
         assert len(result) == 1
         _, ts = result[0]
         assert ts == 30.0
 
     def test_select_discards_low_value_frame(self, tmp_path):
-        """LLM 评估无价值时，删除帧并不加入结果。"""
+        """agent 评估无价值时，删除帧并不加入结果。"""
         segments = [make_segment("看图", 60.0, 65.0)]
 
         self.sel._call_text_llm = Mock(
             return_value=json.dumps({"need_frame": True, "reason": "提到图"})
-        )
-        self.sel._call_vision_llm = Mock(
-            return_value=json.dumps({"keep": False, "reason": "空白屏"})
         )
 
         with patch("framelearn.pipeline.agent_keyframe_selector.FFmpegHelper") as mock_ff:
@@ -244,7 +241,11 @@ class TestAgentKeyframeSelectorSelect:
             frame = tmp_path / "frame_00h01m00s.jpg"
             frame.write_bytes(b"\xff\xd8\xff\xd9")
 
-            result = self.sel.select("v.mp4", segments, tmp_path)
+            with patch(
+                "framelearn.pipeline.agent_keyframe_selector.VisionAgentEvaluator"
+            ) as MockEval:
+                MockEval.return_value.evaluate.return_value = MagicMock(keep=False, reason="空白屏")
+                result = self.sel.select("v.mp4", segments, tmp_path)
 
         assert result == []
         assert not frame.exists()  # deleted
