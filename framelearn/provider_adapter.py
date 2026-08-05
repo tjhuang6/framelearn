@@ -440,7 +440,7 @@ def call_llm_with_tools(
             f"Set {config.provider.upper()}_API_KEY in .env"
         )
 
-    provider_def = PROVIDERS.get(config.provider, )
+    provider_def = PROVIDERS.get(config.provider, {})
     provider_type = provider_def.get("type", "openai")
 
     if provider_type in ("google", "claude"):
