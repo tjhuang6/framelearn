@@ -81,29 +81,34 @@ class TestLLMDecision:
 
     def test_evaluate_keep_true(self, tmp_path):
         frame = tmp_path / "frame.jpg"
-        frame.write_bytes(b"\xff\xd8\xff\xd9")  # minimal JPEG header+end
-        self.sel._call_vision_llm = Mock(
-            return_value=json.dumps({"keep": True, "reason": "PPT内容"})
-        )
-        ev = self.sel._evaluate(frame, "展示架构")
+        frame.write_bytes(b"\xff\xd8\xff\xd9")
+        with patch(
+            "framelearn.pipeline.agent_keyframe_selector.VisionAgentEvaluator"
+        ) as MockEval:
+            MockEval.return_value.evaluate.return_value = MagicMock(keep=True, reason="PPT内容")
+            ev = self.sel._evaluate(frame, "展示架构", "v.mp4", tmp_path, 30.0)
         assert ev.keep is True
 
     def test_evaluate_discard(self, tmp_path):
         frame = tmp_path / "frame.jpg"
         frame.write_bytes(b"\xff\xd8\xff\xd9")
-        self.sel._call_vision_llm = Mock(
-            return_value=json.dumps({"keep": False, "reason": "人脸特写"})
-        )
-        ev = self.sel._evaluate(frame, "讲师正在讲")
+        with patch(
+            "framelearn.pipeline.agent_keyframe_selector.VisionAgentEvaluator"
+        ) as MockEval:
+            MockEval.return_value.evaluate.return_value = MagicMock(keep=False, reason="人脸特写")
+            ev = self.sel._evaluate(frame, "讲师正在讲", "v.mp4", tmp_path, 30.0)
         assert ev.keep is False
 
-    def test_evaluate_llm_failure_defaults_keep(self, tmp_path):
-        """视觉与文字评估都失败时默认保留（不丢帧）。"""
+    def test_evaluate_agent_failure_falls_back_to_text(self, tmp_path):
+        """Vision agent 抛异常时 fallback 至文字评估，默认保留。"""
         frame = tmp_path / "frame.jpg"
         frame.write_bytes(b"\xff\xd8\xff\xd9")
-        self.sel._call_vision_llm = Mock(side_effect=Exception("timeout"))
-        self.sel._call_text_llm = Mock(side_effect=Exception("timeout"))
-        ev = self.sel._evaluate(frame, "看图")
+        with patch(
+            "framelearn.pipeline.agent_keyframe_selector.VisionAgentEvaluator",
+            side_effect=RuntimeError("api error"),
+        ):
+            self.sel._call_text_llm = Mock(side_effect=Exception("timeout"))
+            ev = self.sel._evaluate(frame, "看图", "v.mp4", tmp_path, 30.0)
         assert ev.keep is True
 
     def test_api_vision_call_uses_existing_provider_function(self, tmp_path):
