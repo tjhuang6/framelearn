@@ -282,3 +282,198 @@ class TestAgentKeyframeSelectorSelect:
 
         assert len(result) == 1
         assert result[0][1] == 45.0
+
+
+# ------------------------------------------------------------------
+# VisionAgentEvaluator — tool-calling loop (tasks 4.1–4.4)
+# ------------------------------------------------------------------
+
+def _make_tool_response(tool_name: str, arguments: dict, call_id: str = "call_001") -> dict:
+    """Build a fake OpenAI tool-call response body."""
+    import json as _json
+    return {
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [{
+                    "id": call_id,
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,
+                        "arguments": _json.dumps(arguments),
+                    },
+                }],
+            }
+        }]
+    }
+
+
+class TestVisionAgentEvaluator:
+    def _make_evaluator(self, tmp_path, max_retries: int = 3):
+        from framelearn.pipeline.vision_agent import VisionAgentEvaluator
+        from framelearn.provider_adapter import ProviderConfig
+        ev = VisionAgentEvaluator.__new__(VisionAgentEvaluator)
+        ev.max_retries = max_retries
+        ev._config = ProviderConfig(
+            provider="siliconflow",
+            api_key="sk-test",
+            model="Qwen/test",
+            base_url="https://api.siliconflow.cn/v1/",
+        )
+        return ev
+
+    def _make_frame(self, tmp_path, name: str = "frame.jpg") -> "Path":
+        f = tmp_path / name
+        f.write_bytes(b"\xff\xd8\xff\xd9")
+        return f
+
+    # 4.1: happy path — model calls decide on first turn
+    def test_happy_path_direct_decide(self, tmp_path):
+        """模型首帧直接调用 decide → keep=True。"""
+        frame = self._make_frame(tmp_path)
+        ev = self._make_evaluator(tmp_path)
+
+        with patch(
+            "framelearn.pipeline.vision_agent.call_llm_with_tools",
+            return_value=_make_tool_response("decide", {"keep": True, "reason": "PPT内容"}),
+        ):
+            result = ev.evaluate(frame, "如图所示", "v.mp4", tmp_path, 30.0)
+
+        assert result.keep is True
+        assert result.reason == "PPT内容"
+
+    # 4.2: one re-capture then decide
+    def test_one_recapture_then_decide(self, tmp_path):
+        """模型调用一次 capture_frame，再调用 decide → keep=True。"""
+        frame = self._make_frame(tmp_path)
+        ev = self._make_evaluator(tmp_path)
+
+        responses = [
+            _make_tool_response("capture_frame", {"timestamp": 32.0}, call_id="c1"),
+            _make_tool_response("decide", {"keep": True, "reason": "代码页面"}, call_id="c2"),
+        ]
+
+        new_frame = tmp_path / "frame_agent_00h00m32s.jpg"
+        new_frame.write_bytes(b"\xff\xd8\xff\xd9")
+
+        with patch(
+            "framelearn.pipeline.vision_agent.call_llm_with_tools",
+            side_effect=responses,
+        ):
+            with patch(
+                "framelearn.pipeline.vision_agent.FFmpegHelper.capture_single_frame",
+                return_value=True,
+            ):
+                result = ev.evaluate(frame, "看代码", "v.mp4", tmp_path, 30.0)
+
+        assert result.keep is True
+        assert result.reason == "代码页面"
+
+    # 4.3: max retries reached → conservative keep
+    def test_max_retries_forces_keep(self, tmp_path):
+        """模型持续调用 capture_frame 超过上限，强制 keep=True 退出。"""
+        frame = self._make_frame(tmp_path)
+        ev = self._make_evaluator(tmp_path, max_retries=2)
+
+        # Always respond with capture_frame
+        capture_response = _make_tool_response("capture_frame", {"timestamp": 5.0})
+        new_frame = tmp_path / "frame_agent_00h00m05s.jpg"
+        new_frame.write_bytes(b"\xff\xd8\xff\xd9")
+
+        with patch(
+            "framelearn.pipeline.vision_agent.call_llm_with_tools",
+            return_value=capture_response,
+        ):
+            with patch(
+                "framelearn.pipeline.vision_agent.FFmpegHelper.capture_single_frame",
+                return_value=True,
+            ):
+                result = ev.evaluate(frame, "看图", "v.mp4", tmp_path, 3.0)
+
+        assert result.keep is True
+        assert "最大重试次数" in result.reason
+
+    # 4.4: call_llm_with_tools raises → fallback to _evaluate_text_only
+    def test_agent_exception_triggers_selector_fallback(self, tmp_path):
+        """call_llm_with_tools 抛出异常时，_evaluate() fallback 至文字评估。"""
+        frame = self._make_frame(tmp_path)
+        sel = make_selector()
+
+        with patch(
+            "framelearn.pipeline.vision_agent.call_llm_with_tools",
+            side_effect=RuntimeError("network error"),
+        ):
+            with patch.dict("os.environ", {"VISION_API_KEY": "sk-test"}):
+                # text fallback also fails → default keep=True
+                sel._call_text_llm = Mock(side_effect=Exception("timeout"))
+                result = sel._evaluate(frame, "看图", "v.mp4", tmp_path, 5.0)
+
+        assert result.keep is True
+
+
+# ------------------------------------------------------------------
+# provider_adapter — tool-calling interface (tasks 4.5–4.6)
+# ------------------------------------------------------------------
+
+class TestCallLlmWithTools:
+    def _make_config(self, provider: str = "siliconflow") -> "ProviderConfig":
+        from framelearn.provider_adapter import ProviderConfig, PROVIDERS
+        p = PROVIDERS[provider]
+        return ProviderConfig(
+            provider=provider,
+            api_key="sk-test",
+            model=p["default_model"],
+            base_url=p["base_url"],
+        )
+
+    # 4.5: OpenAI path injects tools field
+    def test_openai_path_injects_tools_field(self, tmp_path):
+        """OpenAI-compatible 路径应在请求 body 中包含 tools 和 tool_choice 字段。"""
+        import httpx
+        from framelearn.provider_adapter import call_llm_with_tools
+
+        tools = [{"type": "function", "function": {"name": "decide", "parameters": {}}}]
+        messages = [{"role": "user", "content": "test"}]
+        config = self._make_config("siliconflow")
+
+        fake_response = {
+            "choices": [{"message": {"role": "assistant", "content": None, "tool_calls": []}}]
+        }
+
+        with patch("framelearn.provider_adapter.httpx.post") as mock_post:
+            mock_post.return_value = MagicMock(
+                status_code=200,
+                json=MagicMock(return_value=fake_response),
+            )
+            call_llm_with_tools(messages, tools, config)
+
+        sent_body = mock_post.call_args.kwargs["json"]
+        assert "tools" in sent_body
+        assert sent_body["tools"] == tools
+        assert sent_body["tool_choice"] == "required"
+
+    # 4.6: google and claude providers raise NotImplementedError
+    def test_gemini_raises_not_implemented(self):
+        """Google Gemini provider 应抛出 NotImplementedError。"""
+        from framelearn.provider_adapter import ProviderConfig, PROVIDERS, call_llm_with_tools
+        config = ProviderConfig(
+            provider="gemini",
+            api_key="key",
+            model=PROVIDERS["gemini"]["default_model"],
+            base_url=PROVIDERS["gemini"]["base_url"],
+        )
+        with pytest.raises(NotImplementedError):
+            call_llm_with_tools([{"role": "user", "content": "x"}], [], config)
+
+    def test_claude_raises_not_implemented(self):
+        """Claude provider 应抛出 NotImplementedError。"""
+        from framelearn.provider_adapter import ProviderConfig, PROVIDERS, call_llm_with_tools
+        config = ProviderConfig(
+            provider="claude",
+            api_key="key",
+            model=PROVIDERS["claude"]["default_model"],
+            base_url=PROVIDERS["claude"]["base_url"],
+        )
+        with pytest.raises(NotImplementedError):
+            call_llm_with_tools([{"role": "user", "content": "x"}], [], config)
