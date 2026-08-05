@@ -20,7 +20,7 @@
 - **THEN** Agent 调用 `decide` 提交最终决策，系统以该决策为准
 
 ### Requirement: 循环重试次数上限
-系统 SHALL 对单次评估循环的 `capture_frame` 调用次数施加可配置上限（默认值 SHALL 不超过 3 次）。达到上限后，系统 MUST 强制 Agent 调用 `decide` 或代替 Agent 作出保守决策（保留）。
+系统 SHALL 对单次评估循环的 `capture_frame` 调用次数施加可配置上限（默认值 SHALL 不超过 5 次）。达到上限后，系统 MUST 强制 Agent 调用 `decide` 或代替 Agent 作出保守决策（保留）。
 
 #### Scenario: 达到重试上限
 - **WHEN** Agent 已调用 `capture_frame` 达到配置的最大次数

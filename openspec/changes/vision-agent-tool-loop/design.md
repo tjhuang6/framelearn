@@ -2,20 +2,20 @@
 
 见 proposal.md — Why。
 
-当前 `provider_adapter.py` 的 `call_llm()` 只支持单轮文本响应。`_evaluate()` 通过解析自由文本 JSON 获取决策，不涉及任何工具调用。三类 provider（openai-compatible / google / claude）的函数调用 API 格式各不相同，目前没有统一的 tool-calling 层。视觉模型默认配置为 `VISION_PROVIDER=gemini`，但可通过 env 切换到任意 openai-compatible provider（如 SiliconFlow、Kimi）。
+当前 `provider_adapter.py` 的 `call_llm()` 只支持单轮文本响应。`_evaluate()` 通过解析自由文本 JSON 获取决策，不涉及任何工具调用。三类 provider（openai-compatible / google / claude）的函数调用 API 格式各不相同，目前没有统一的 tool-calling 层。
 
 ## Goals / Non-Goals
 
 **Goals:**
-- 在 `provider_adapter.py` 中新增 `call_llm_with_tools()` 函数，支持 OpenAI-compatible 和 Google Gemini 两种 provider 类型的函数调用格式。
+- 在 `provider_adapter.py` 中新增 `call_llm_with_tools()` 函数，支持 OpenAI-compatible 的 provider 类型的函数调用格式。
 - 新建 `framelearn/pipeline/vision_agent.py`，实现 `VisionAgentEvaluator` 类，封装完整的"截帧 → 评估 → 重截 → 决策"工具调用循环。
 - `AgentKeyframeSelector._evaluate()` 委托给 `VisionAgentEvaluator`；其余方法（`_decide()`、`_heuristic_needs_frame()`、fallback）保持不变。
-- 最大重试次数通过 `settings.toml` 的 `runtime.vision_agent_max_retries` 配置，默认值 3。
+- 最大重试次数通过 `settings.toml` 的 `runtime.vision_agent_max_retries` 配置，默认值 5。
 
 **Non-Goals:**
-- 不为 Claude provider 实现工具调用（当前没有使用 Claude 作为 vision 模型的配置路径）。
+- 不为 Claude provider 实现工具调用（当前没有使用 Claude 作为 vision 模型的配置路径）,太贵了不考虑。
 - 不修改文字 LLM 的调用链（`_decide()` 步骤）。
-- 不将 `_heuristic_needs_frame()` 替换为 Agent 驱动。
+- 不将 `_heuristic_needs_frame()` 替换为 Agent 驱动。 （以后会加 暂且标记  每一个小时切分一次 返回一个 JSON 列表：[{"timestamp": 12.5, "reason": "..."}]）
 - 不引入异步/并发框架；循环仍为同步顺序执行。
 
 ## Decisions
@@ -44,7 +44,7 @@ def call_llm_with_tools(
 
 返回原始 body 而非解析后文本，是因为工具调用结构因 provider 不同差异较大，让 `VisionAgentEvaluator` 持有解析逻辑更清晰。
 
-替代方案：使用 openai Python SDK — 引入新依赖，且 SiliconFlow / 自定义 endpoint 需要 base_url override，不如直接用 httpx 灵活。
+替代方案（不用这个）：使用 openai Python SDK — 引入新依赖，且 SiliconFlow / 自定义 endpoint 需要 base_url override，不如直接用 httpx 灵活。
 
 ### 决策 3：工具定义使用两个工具 `capture_frame` + `decide`，而非单工具 + 文本 JSON
 
@@ -58,8 +58,7 @@ OpenAI 格式（`role: user/assistant/tool`）是事实标准，已有大量内�
 
 ## Risks / Trade-offs
 
-- **token 消耗增加** → 每次 `capture_frame` 需携带图像（base64）重新发送消息历史，成本随重试次数线性增长。缓解：`max_tokens=512` 限制输出长度；`max_retries` 默认 3 限制循环次数。
-- **Gemini 工具调用支持情况** → Gemini REST API 的 `functionDeclarations` 格式与 OpenAI tools 格式差异较大，需单独适配并测试。缓解：`test_agent_keyframe.py` 中增加针对 Gemini 路径的 mock 测试。
+- **token 消耗增加** → 每次 `capture_frame` 需携带图像（base64）重新发送消息历史，成本随重试次数线性增长。缓解：`max_tokens=512` 限制输出长度；`max_retries` 默认 5 限制循环次数。
 - **部分 OpenAI-compatible provider 不支持 vision + tool calling 同时使用** → 例如某些 SiliconFlow 模型可能支持视觉但不支持函数调用。缓解：捕获 API 错误并 fallback 至 `_evaluate_text_only()`，与现有 fallback 路径一致。
 - **循环无限等待风险** → 若模型持续调用 `capture_frame` 不调用 `decide`，已由 `max_retries` 上限保障。
 
@@ -72,7 +71,3 @@ OpenAI 格式（`role: user/assistant/tool`）是事实标准，已有大量内�
 5. 更新 `test_agent_keyframe.py`，覆盖：首帧决策、单次重截、达到上限、fallback。
 
 无需数据迁移。功能降级：若新模块导入失败，`_evaluate()` 可 catch ImportError 并直接调用 `_evaluate_text_only()`（极端兜底，不作为常规路径）。
-
-## Open Questions
-
-- Gemini 的 `functionDeclarations` 是否支持在同一请求中同时传入图像？需在真实 endpoint 验证（任务中以 mock 先行，后补集成测试）。

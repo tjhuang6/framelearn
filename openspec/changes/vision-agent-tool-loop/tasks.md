@@ -2,8 +2,7 @@
 
 - [ ] 1.1 在 `provider_adapter.py` 中定义 `call_llm_with_tools(messages, tools, config, images, max_tokens, timeout) -> dict`，返回原始响应 body
 - [ ] 1.2 实现 OpenAI-compatible 路径：在请求 body 中注入 `tools` 数组和 `tool_choice`，解析响应中的 `choices[0].message.tool_calls`
-- [ ] 1.3 实现 Google Gemini 路径：将 OpenAI-format `tools` 转换为 `functionDeclarations`，解析响应中的 `functionCall` parts
-- [ ] 1.4 为 Claude provider 路径抛出 `NotImplementedError`（当前无 Claude vision 配置路径，不实现）
+- [ ] 1.3 为 Claude provider ， Google Gemini路径抛出 `NotImplementedError`（当前无 Claude vision 配置路径，不实现）
 
 ## 2. 新建 vision_agent.py
 
