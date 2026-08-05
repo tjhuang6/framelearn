@@ -120,7 +120,9 @@ def load_vision_config() -> ProviderConfig:
     For siliconflow provider, SILICONFLOW_API_KEY / SILICONFLOW_BASE_URL
     are accepted as aliases for VISION_API_KEY / VISION_BASE_URL.
     """
-    provider_key = os.getenv("VISION_PROVIDER", "gemini")
+    provider_key = os.getenv("VISION_PROVIDER", "")
+    if not provider_key:
+      raise ValueError("VISION_PROVIDER is not set. Set it to one of: siliconflow,  ...")
     provider = PROVIDERS.get(provider_key)
     if not provider:
         raise ValueError(
@@ -371,3 +373,107 @@ def call_vision_llm(
     """Call vision LLM using VISION_PROVIDER config from .env."""
     config = load_vision_config()
     return call_llm(prompt, config, images=images, max_tokens=max_tokens)
+
+
+# ---------------------------------------------------------------------------
+# Tool-calling interface (OpenAI-compatible providers only)
+# ---------------------------------------------------------------------------
+
+def _inject_images_into_last_user_message(
+    messages: list[dict],
+    images: list[str],
+) -> list[dict]:
+    """Return a copy of messages with images injected into the last user turn."""
+    msgs = [m.copy() for m in messages]
+    for i in range(len(msgs) - 1, -1, -1):
+        if msgs[i].get("role") == "user":
+            content = msgs[i].get("content", "")
+            parts: list = (
+                [{"type": "text", "text": content}]
+                if isinstance(content, str)
+                else list(content)
+            )
+            for img_path in images:
+                b64, mime = encode_image(img_path)
+                parts.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{b64}"},
+                })
+            msgs[i] = {**msgs[i], "content": parts}
+            break
+    return msgs
+
+
+def call_llm_with_tools(
+    messages: list[dict],
+    tools: list[dict],
+    config: ProviderConfig,
+    images: Optional[list[str]] = None,
+    max_tokens: int = 512,
+    timeout: int = 60,
+) -> dict:
+    """Call an OpenAI-compatible LLM with tool definitions.
+
+    Requires the model to respond with a tool call (tool_choice="required").
+    Returns the raw response body; the caller parses tool_calls themselves.
+
+    Args:
+        messages: Full conversation history in OpenAI message format.
+        tools: Tool definitions in OpenAI function-calling format
+               (list of {"type": "function", "function": {...}}).
+        config: Provider configuration.
+        images: Optional image paths to inject into the last user message.
+        max_tokens: Maximum tokens in the response.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        Raw JSON response body as a dict.
+
+    Raises:
+        NotImplementedError: For google or claude provider types.
+        ValueError: If API key is missing.
+        httpx.HTTPStatusError: On non-200 HTTP responses.
+    """
+    if not config.api_key:
+        raise ValueError(
+            f"Missing API key for provider '{config.provider}'. "
+            f"Set {config.provider.upper()}_API_KEY in .env"
+        )
+
+    provider_def = PROVIDERS.get(config.provider, )
+    provider_type = provider_def.get("type", "openai")
+
+    if provider_type in ("google", "claude"):
+        raise NotImplementedError(
+            f"Tool calling is not implemented for provider type '{provider_type}'. "
+            "Use an OpenAI-compatible provider (e.g. siliconflow, deepseek, kimi)."
+        )
+
+    msgs = (
+        _inject_images_into_last_user_message(messages, images)
+        if images
+        else messages
+    )
+
+    url = f"{config.base_url.rstrip('/')}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {config.api_key}",
+        "Content-Type": "application/json",
+    }
+    body = {
+        "model": config.model,
+        "messages": msgs,
+        "tools": tools,
+        "tool_choice": "required",
+        "temperature": 0.3,
+        "max_tokens": max_tokens,
+    }
+
+    response = httpx.post(url, headers=headers, json=body, timeout=timeout)
+    if response.status_code != 200:
+        raise httpx.HTTPStatusError(
+            f"Provider '{config.provider}' returned {response.status_code}: {response.text}",
+            request=response.request,
+            response=response,
+        )
+    return response.json()
