@@ -22,6 +22,13 @@ vision_model = "Qwen/Qwen3.6-35B-A3B"
 asr_mode = "api"
 asr_provider = "dashscope"
 
+# 会话持久化（保存对话历史到 ~/.framelearn/sessions.db）
+# false = 所有对话仅存在内存，进程结束后丢失
+persist_sessions = true
+
+# 隐私提示（每次任务前显示实际使用的外部服务）
+privacy_hints = false
+
 
 # ═══════════════════════════════════════════════════════════════════
 # App-Server 配置（当 *_mode = "appserver" 时生效）
