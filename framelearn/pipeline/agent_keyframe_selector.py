@@ -171,7 +171,6 @@ class AgentKeyframeSelector:
         Falls back to text-only evaluation if the agent loop raises.
         """
         try:
-            from framelearn.pipeline.vision_agent import VisionAgentEvaluator
             evaluator = VisionAgentEvaluator()
             return evaluator.evaluate(frame_path, context, video_path, output_dir, timestamp)
         except Exception:
