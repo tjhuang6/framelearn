@@ -119,7 +119,10 @@ class TestLLMDecision:
         self.sel.vision_provider = "siliconflow"
         self.sel.vision_model = "Qwen/test-vision"
 
-        with patch.dict("os.environ", {"SILICONFLOW_API_KEY": "sk-test-key"}):
+        with patch.dict(
+            "os.environ",
+            {"SILICONFLOW_API_KEY": "sk-test-key", "VISION_API_KEY": "sk-test-key"},
+        ):
             with patch(
                 "framelearn.provider_adapter.call_llm",
                 return_value='{"keep": true, "reason": "代码画面"}',

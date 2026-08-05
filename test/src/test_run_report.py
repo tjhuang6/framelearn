@@ -229,12 +229,15 @@ class TestAgentKeyframeSelectorReporting:
         frame = tmp_path / "frame.jpg"
         frame.write_bytes(b"\xff\xd8\xff\xd9")
 
-        self.sel._call_vision_llm = Mock(side_effect=Exception("vision down"))
-        self.sel._call_text_llm = Mock(
-            return_value='{"keep": false, "reason": "no visual content"}'
-        )
+        with patch(
+            "framelearn.pipeline.agent_keyframe_selector.VisionAgentEvaluator",
+            side_effect=Exception("vision down"),
+        ):
+            self.sel._call_text_llm = Mock(
+                return_value='{"keep": false, "reason": "no visual content"}'
+            )
 
-        ev = self.sel._evaluate(frame, "讲师正在讲")
+            ev = self.sel._evaluate(frame, "讲师正在讲", "v.mp4", tmp_path, 0.0)
 
         assert ev.keep is False
         warnings = self.reporter.get_warnings()
@@ -244,10 +247,13 @@ class TestAgentKeyframeSelectorReporting:
         frame = tmp_path / "frame.jpg"
         frame.write_bytes(b"\xff\xd8\xff\xd9")
 
-        self.sel._call_vision_llm = Mock(side_effect=Exception("vision down"))
-        self.sel._call_text_llm = Mock(side_effect=Exception("text down"))
+        with patch(
+            "framelearn.pipeline.agent_keyframe_selector.VisionAgentEvaluator",
+            side_effect=Exception("vision down"),
+        ):
+            self.sel._call_text_llm = Mock(side_effect=Exception("text down"))
 
-        ev = self.sel._evaluate(frame, "看图")
+            ev = self.sel._evaluate(frame, "看图", "v.mp4", tmp_path, 0.0)
 
         assert ev.keep is True
         warnings = self.reporter.get_warnings()
