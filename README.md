@@ -100,11 +100,18 @@ framelearn "处理这个视频 /absolute/path/tutorial.mp4"
 # 通用问答
 framelearn ask "解释一下这个项目的结构"
 
+# 会话管理
+framelearn session list              # 列出所有会话
+framelearn session info              # 查看数据库统计
+framelearn session delete <id>       # 删除指定会话
+framelearn session clear             # 清空所有会话（需确认）
+framelearn session export <id>       # 导出会话为 JSON
+
 # 无参数时进入 REPL
 framelearn
 ```
 
-传统命令包括 `run`、`ask`、`summarize`、`help`。自然语言解析优先使用有效的 `TEXT_PROVIDER` + `TEXT_API_KEY`；没有时使用本地规则，将多数非视频请求路由为 `ask`。
+传统命令包括 `run`、`ask`、`summarize`、`session`、`help`。自然语言解析优先使用有效的 `TEXT_PROVIDER` + `TEXT_API_KEY`；没有时使用本地规则，将多数非视频请求路由为 `ask`。
 
 ## 实际输出
 
@@ -152,6 +159,7 @@ uv run pytest
 - [流水线实现说明](docs/pipeline-overview.md)
 - [AntiVibe 技术报告](docs/antivibe-technical-report.md)
 - [Codex app-server 指南](docs/codex-app-server-guide.md)
+- [隐私与数据生命周期说明](docs/privacy-and-data-lifecycle.md) ⭐
 
 ## License
 
