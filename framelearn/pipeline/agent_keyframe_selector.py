@@ -14,6 +14,7 @@ from pathlib import Path
 from framelearn.config import get as config_get
 from framelearn.pipeline.asr_adapter import TranscriptSegment
 from framelearn.pipeline.ffmpeg_helper import FFmpegHelper
+from framelearn.pipeline.vision_agent import VisionAgentEvaluator
 
 
 # Keywords that suggest a screenshot is needed
