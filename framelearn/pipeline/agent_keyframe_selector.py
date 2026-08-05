@@ -109,8 +109,8 @@ class AgentKeyframeSelector:
                 print(f"   ⚠️  截帧失败：{frame_name}")
                 continue
 
-            # Step 4: LLM evaluates the image
-            evaluation = self._evaluate(frame_path, seg.text)
+            # Step 4: Vision agent evaluates the image (tool-calling loop)
+            evaluation = self._evaluate(frame_path, seg.text, video_path, output_dir, ts)
             if evaluation.keep:
                 selected.append((frame_path, ts))
                 existing_ts.add(ts)
