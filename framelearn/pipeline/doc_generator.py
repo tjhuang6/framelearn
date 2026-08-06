@@ -155,8 +155,8 @@ class DocumentGenerator:
     """Generate markdown tutorial from keyframes + subtitle."""
 
     def __init__(self):
-        self.vision_mode = config_get("runtime.vision_mode", "appserver")
-        self.text_mode = config_get("runtime.text_mode", "appserver")
+        # Always use API mode
+        pass
 
     def generate(
         self,
