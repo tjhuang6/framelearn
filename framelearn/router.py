@@ -52,7 +52,6 @@ class CommandRouter:
 
     def __init__(self, workspace: Optional[str] = None):
         self._workspace = workspace or os.getcwd()
-        self._runtime: Optional[RuntimeAdapter] = None
 
     def execute(self, command: str, flags: dict = {}) -> int:
         """
