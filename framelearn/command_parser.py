@@ -103,8 +103,7 @@ class CommandParser:
 
         Priority:
           1. TEXT_PROVIDER + valid TEXT_API_KEY in .env  → use provider_adapter
-          2. codex app-server available                  → use codex as parser
-          3. Neither available                           → treat input as ask passthrough
+          2. Neither available                           → treat input as ask passthrough
         """
         provider = os.getenv("TEXT_PROVIDER", "").strip()
         api_key = os.getenv("TEXT_API_KEY", "").strip()
@@ -118,7 +117,7 @@ class CommandParser:
         if provider and key_looks_real:
             return self._parse_via_provider(text)
 
-        return self._parse_via_codex(text)
+        return self._parse_via_rules(text)
 
     def _parse_via_provider(self, text: str) -> str:
         from framelearn.provider_adapter import call_text_llm
