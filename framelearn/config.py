@@ -79,16 +79,10 @@ def _default_config() -> dict[str, Any]:
     """Built-in default config when settings.toml is missing."""
     return {
         "runtime": {
-            "text_mode": "appserver",
+            "text_mode": "api",
             "vision_mode": "api",
             "asr_mode": "api",
-            "persist_sessions": True,
             "privacy_hints": False,
-        },
-        "appserver": {
-            "command": ["codex", "app-server"],
-            "workspace": ".",
-            "approval_policy": "interactive",
         },
         "video": {
             "output_dir": "./output",
