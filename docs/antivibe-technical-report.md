@@ -150,7 +150,7 @@ Alternatives：直接 OpenAI-compatible HTTP、调用 `codex exec`、自己实�
 
 ## 5. 主要风险与边界
 
-### P0：安装声明与实际 import 不一致 解决 [antivibe-patch-lines-153-163](/Users/iwill/Documents/PythonProjects/FrameLearn-fix/docs/antivibe-patch-lines-153-163.md)
+### P0：安装声明与实际 import 不一致 解决 [antivibe-patch-lines-153-163](../mine/antivibe-patch-lines-153-163.md)
 
 `pyproject.toml` 只声明 `httpx` 和 `python-dotenv`，但关键帧路径直接导入 Pillow/ImageHash，DashScope OSS 直接导入 `oss2`。当前开发环境里这些包可导入，不代表 `uv sync` 在新环境会安装它们。一个干净安装可能在运行时失败。
 
