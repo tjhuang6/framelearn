@@ -5,6 +5,7 @@ import shutil
 import sys
 
 from framelearn.command_parser import CommandParser
+from framelearn.errors import FrameLearnError
 from framelearn.router import CommandRouter
 
 
@@ -41,8 +42,13 @@ def _parse_flags(args: list[str]) -> tuple[str, dict]:
     return " ".join(remaining), flags
 
 
-def _run_once(user_input: str, parser: CommandParser, router: CommandRouter, flags: dict = {}):
-    """Parse and execute a single input. Returns exit code."""
+def _run_once(user_input: str, parser: CommandParser, router: CommandRouter, flags: dict = {}) -> int:
+    """Parse and execute a single input. Returns exit code.
+
+    Any domain failure (usage error via ValueError, or a business/feature
+    failure via FrameLearnError) is mapped to a nonzero exit code so shell
+    scripts, batch jobs, and CI can reliably detect failure.
+    """
     try:
         command = parser.parse(user_input)
         if not parser._is_traditional_command(user_input):
@@ -55,9 +61,11 @@ def _run_once(user_input: str, parser: CommandParser, router: CommandRouter, fla
         return 1
 
     try:
-        router.execute(command, flags=flags)
-        return 0
+        return router.execute(command, flags=flags)
     except ValueError as e:
+        print(f"❌ {e}")
+        return 1
+    except FrameLearnError as e:
         print(f"❌ {e}")
         return 1
     except Exception as e:

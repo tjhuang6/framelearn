@@ -18,9 +18,19 @@ vision_mode = "api"
 vision_provider = "siliconflow"
 vision_model = "Qwen/Qwen3.6-35B-A3B"
 
+# Vision Agent 工具调用循环最大重试次数（capture_frame 的上限）
+vision_agent_max_retries = 5
+
 # ASR 场景：音频转文字（只支持 api）
 asr_mode = "api"
 asr_provider = "dashscope"
+
+# 会话持久化（保存对话历史到 ~/.framelearn/sessions.db）
+# false = 所有对话仅存在内存，进程结束后丢失
+persist_sessions = true
+
+# 隐私提示（每次任务前显示实际使用的外部服务）
+privacy_hints = false
 
 
 # ═══════════════════════════════════════════════════════════════════

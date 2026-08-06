@@ -20,6 +20,7 @@ from typing import Optional
 import httpx
 
 from framelearn.config import get as config_get
+from framelearn.pipeline.run_report import get_reporter
 
 
 # ── Data structures ──────────────────────────────────────────────
@@ -180,6 +181,12 @@ class DashscopeBackend:
                         except Exception as e:
                             c = futures[future]
                             print(f"   ❌ 段 {c.index + 1} 提交失败：{e}")
+                            get_reporter().record_failed_segment(
+                                "dashscope_asr.submit",
+                                c.index + 1,
+                                str(e),
+                                detail={"start_sec": c.start_sec, "duration_sec": c.duration_sec},
+                            )
 
             if not task_map:
                 raise RuntimeError("所有分段均提交失败")
@@ -201,9 +208,32 @@ class DashscopeBackend:
                     print(f"   ✅ 段 {chunk.index + 1} 完成")
                 except Exception as e:
                     print(f"   ❌ 段 {chunk.index + 1} 识别失败：{e}")
+                    get_reporter().record_failed_segment(
+                        "dashscope_asr.poll",
+                        chunk.index + 1,
+                        str(e),
+                        detail={"start_sec": chunk.start_sec, "duration_sec": chunk.duration_sec},
+                    )
 
             if not results:
                 raise RuntimeError("所有分段均识别失败")
+
+            if len(results) < len(chunks):
+                missing = len(chunks) - len(results)
+                msg = (
+                    f"{missing}/{len(chunks)} 个音频分段识别失败，已忽略并用剩余 "
+                    f"{len(results)} 段合并——字幕将缺失这些时段的内容"
+                )
+                print(f"   ⚠️  {msg}")
+                get_reporter().record_fallback(
+                    "dashscope_asr.merge",
+                    msg,
+                    detail={
+                        "total_chunks": len(chunks),
+                        "succeeded_chunks": len(results),
+                        "missing_chunks": missing,
+                    },
+                )
 
             # 5. Merge
             results.sort(key=lambda x: x[0].index)

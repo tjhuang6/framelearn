@@ -96,14 +96,16 @@ class AppServerSession:
 
     def run_turn(
         self,
-        text: str,
+        text: str = "",
+        inputs: Optional[list[dict]] = None,
         ui_callback: Optional[Callable[[dict], None]] = None,
     ) -> TurnResult:
         """
         Send one user message and consume the turn until completion.
 
         Args:
-            text: User message text
+            text: User message text (deprecated when inputs is provided)
+            inputs: Structured turn inputs (list of {type, text/path/url})
             ui_callback: Optional callable for streaming UI events (errors ignored)
 
         Returns:
@@ -121,13 +123,21 @@ class AppServerSession:
         assert self._client is not None
         assert self._thread_id is not None
 
+        # Build turn inputs
+        if inputs is not None:
+            turn_inputs = inputs
+        elif text:
+            turn_inputs = [{"type": "text", "text": text}]
+        else:
+            raise ValueError("Either text or inputs must be provided")
+
         # Start the turn
         try:
             response = self._client.request(
                 "turn/start",
                 {
                     "threadId": self._thread_id,
-                    "input": [{"type": "text", "text": text}],
+                    "input": turn_inputs,
                 },
                 timeout=self.TURN_START_TIMEOUT,
             )

@@ -49,17 +49,24 @@ class RuntimeAdapter:
         ui_callback: Optional[Callable[[dict], None]] = None,
         codex_command: tuple[str, ...] = ("codex", "app-server"),
     ):
+        from framelearn.config import get as config_get
+        
         self.workspace = workspace
         self.session_id = session_id or str(uuid.uuid4())
-        self._db = db or SessionDB()
+        
+        # Check if session persistence is enabled
+        persist_enabled = config_get("runtime.persist_sessions", True)
+        self._db = db or SessionDB(enabled=persist_enabled)
+        
         self._approval_callback = approval_callback
         self._ui_callback = ui_callback
         self._codex_command = codex_command
 
         self._session: Optional[AppServerSession] = None
 
-        # Ensure session row exists in DB
-        self._db.create_session(self.session_id)
+        # Ensure session row exists in DB (only if persistence enabled)
+        if persist_enabled:
+            self._db.create_session(self.session_id)
 
     # ------------------------------------------------------------------
     # Public API

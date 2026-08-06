@@ -150,37 +150,37 @@ Alternatives：直接 OpenAI-compatible HTTP、调用 `codex exec`、自己实�
 
 ## 5. 主要风险与边界
 
-### P0：安装声明与实际 import 不一致
+### P0：安装声明与实际 import 不一致 解决 [antivibe-patch-lines-153-163](/Users/iwill/Documents/PythonProjects/FrameLearn-fix/docs/antivibe-patch-lines-153-163.md)
 
 `pyproject.toml` 只声明 `httpx` 和 `python-dotenv`，但关键帧路径直接导入 Pillow/ImageHash，DashScope OSS 直接导入 `oss2`。当前开发环境里这些包可导入，不代表 `uv sync` 在新环境会安装它们。一个干净安装可能在运行时失败。
 
 建议：把 `pillow`、`imagehash`、`oss2` 加入项目依赖；若希望 DashScope 可选，则用 extras/dependency group，并在选择 provider 时给出明确安装提示。
 
-### P0：Agent 图像 API 路径不可执行
+### P0：Agent 图像 API 路径不可执行 解决 
 
 `agent_keyframe_selector.py:229-241` 导入 `ProviderAdapter`，但 `provider_adapter.py` 没有这个类。启用默认 `vision_mode="api"` 下的 Agent keyframe selection，会在图像评估时抛异常，再降级成文字评估，因此功能表面继续运行，但实际没有进行视觉判断。
 
 建议：直接复用现有 `call_llm()`/`call_vision_llm()`，并增加验证“图片确实进入请求体”的测试。
 
-### P1：app-server 文档生成不是多模态
+### P1：app-server 文档生成不是多模态 解决 [antivibe-patch-p1-multimodal-doc-gen](/Users/iwill/Documents/PythonProjects/FrameLearn-fix/docs/antivibe-patch-p1-multimodal-doc-gen.md)
 
 `session.py:126-131` 的 input 只有 text。`DocumentGenerator` 虽列出关键帧文件名，但 app-server 模型不会自动读取图片。若 Codex 自主使用文件工具读取图片，还受工作目录、审批和模型行为影响，不能当作确定性输入。
 
 建议：将 `run_turn()` 扩展为结构化 user input，明确发送 `localImage`；或者把文档生成统一限定为 Vision API，并把 app-server 只用于 `ask`。
 
-### P1：缓存缺少可追溯性和失效策略
+### P1：缓存缺少可追溯性和失效策略 解决 [antivibe-patch-p1-cache-traceability](/Users/iwill/Documents/PythonProjects/FrameLearn-fix/docs/antivibe-patch-p1-cache-traceability.md)
 
 缓存判断散落在 `video_pipeline.py:85-97`、`:129-141` 和 `doc_generator.py:209-215`。它们没有 manifest。用户无法从产物判断使用了哪个源文件、模型、prompt 或配置。
 
 建议：每个任务写 `manifest.json`，记录输入文件 hash/mtime/size、配置、provider/model、代码版本、段落完成状态。只有 cache key 匹配才复用。
 
-### P1：关键帧文件名冲突
+### P1：关键帧文件名冲突 解决 [antivibe-patch-p1-keyframe-naming](/Users/iwill/Documents/PythonProjects/FrameLearn-fix/docs/antivibe-patch-p1-keyframe-naming.md)
 
 场景帧与固定间隔帧都按整秒命名。两个候选帧落在同一秒时，`Path.rename()` 可能覆盖、失败或使两个 tuple 指向同一文件，具体取决于平台语义。
 
 建议：文件名保留毫秒或附加来源/序号，例如 `frame_00h01m30s250_scene_003.jpg`。
 
-### P1：错误被“偏向继续”掩盖
+### P1：错误被“偏向继续”掩盖 解决 [antivibe-patch-p1-error-masking](/Users/iwill/Documents/PythonProjects/FrameLearn-fix/docs/antivibe-patch-p1-error-masking.md)
 
 - pHash 失败直接跳帧；
 - Agent LLM 决策失败默认补帧；
@@ -191,7 +191,7 @@ Alternatives：直接 OpenAI-compatible HTTP、调用 `codex exec`、自己实�
 
 建议：`PipelineResult` 增加 warnings；输出 `run-report.json`，列出失败分段、fallback、跳过帧和缓存命中。
 
-### P1：CLI 失败可能仍返回成功退出码
+### P1：CLI 失败可能仍返回成功退出码 解决 [antivibe-patch-p1-cli-exit-code](/Users/iwill/Documents/PythonProjects/FrameLearn-fix/docs/antivibe-patch-p1-cli-exit-code.md)
 
 `VideoPipeline` 的业务失败通常通过 `PipelineResult.error` 返回，Router 只打印错误；未实现的在线下载同样是打印提示后正常返回。因此 `_run_once()` 没有看到异常，最终返回 0。审计实测 `framelearn run https://youtube.com/watch?v=x` 明确打印“在线下载尚未实现”，shell 退出码仍为 0。
 
@@ -199,7 +199,7 @@ Alternatives：直接 OpenAI-compatible HTTP、调用 `codex exec`、自己实�
 
 建议：让 Router handler 返回明确状态，或在不可完成的 `run` 路径抛出领域异常；`_run_once()` 应把失败统一映射为非零退出码，并增加 CLI exit-code 测试。
 
-### P1：Codex 子进程继承了不需要的云凭据
+### P1：Codex 子进程继承了不需要的云凭据 解决 [antivibe-patch-p1-codex-credentials](/Users/iwill/Documents/PythonProjects/FrameLearn-fix/docs/antivibe-patch-p1-codex-credentials.md)
 
 `JsonRpcStdioClient._build_env()` 从完整 `os.environ` 复制环境，只移除 `TEXT_API_KEY`、`VISION_API_KEY`、`DATABASE_URL` 和 `WEBHOOK_SECRET`。因此 `DASHSCOPE_API_KEY`、`SILICONFLOW_API_KEY`、`OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET` 以及其他云凭据仍会进入 `codex app-server` 子进程。
 
@@ -207,7 +207,7 @@ Alternatives：直接 OpenAI-compatible HTTP、调用 `codex exec`、自己实�
 
 建议：改为 allowlist 构建子进程环境，至少只保留系统运行变量、`HOME`、`PATH`、Codex 必要配置和明确授权的字段；如必须使用 denylist，应补齐 FrameLearn 自身的 ASR/OSS 密钥并加入回归测试。
 
-### P2：配置存在重复和未使用字段
+### P2：配置存在重复和未使用字段 解决 [antivibe-patch-p2-config-cleanup](/Users/iwill/Documents/PythonProjects/FrameLearn-fix/docs/antivibe-patch-p2-config-cleanup.md)
 
 - `runtime.asr_provider` 在旧文档中出现，但代码读 `asr.provider`；当前 `settings.toml` 同时还有 `runtime.asr_provider` 与 `[asr].provider`。
 - `asr.overlap` 写在配置里，但当前 DashScope 切片没有读取。
@@ -222,7 +222,7 @@ Alternatives：直接 OpenAI-compatible HTTP、调用 `codex exec`、自己实�
 
 建议：定义稳定的配置优先级，例如显式 `--config` / 环境变量路径 → 当前工作目录 → 用户配置目录 → 包内默认资源；启动时打印实际配置来源，并为 editable install 与 wheel install 分别增加测试。
 
-### P2：会话和远程媒体的数据边界缺少说明
+### P2：会话和远程媒体的数据边界缺少说明 解决 [antivibe-patch-p2-data-boundary](/Users/iwill/Documents/PythonProjects/FrameLearn-fix/docs/antivibe-patch-p2-data-boundary.md)
 
 DashScope 路径会把音频切片上传到 OSS，再通过签名 URL交给 ASR；Vision API 会发送字幕和关键帧；Codex 对话、工具调用和 reasoning 会明文保存到 `~/.framelearn/sessions.db`。当前用户文档没有集中说明这些数据去向、保留周期、清理方式或关闭持久化的方法。
 

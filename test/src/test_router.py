@@ -61,17 +61,21 @@ class TestRunCommand:
         with pytest.raises(ValueError, match="无效的视频链接"):
             router.execute("run https://notsupported.com/video")
 
-    def test_valid_youtube_url_prints_message(self, capsys):
+    def test_valid_youtube_url_raises_not_available(self, capsys):
+        from framelearn.errors import FeatureNotAvailableError
         router, _ = make_router()
-        router.execute("run https://youtube.com/watch?v=xxx")
+        with pytest.raises(FeatureNotAvailableError):
+            router.execute("run https://youtube.com/watch?v=xxx")
         out = capsys.readouterr().out
-        assert "在线视频" in out or "未实现" in out
+        assert "手动下载" in out or "未实现" in out
 
-    def test_valid_bilibili_url_prints_message(self, capsys):
+    def test_valid_bilibili_url_raises_not_available(self, capsys):
+        from framelearn.errors import FeatureNotAvailableError
         router, _ = make_router()
-        router.execute("run https://bilibili.com/video/BV1xx")
+        with pytest.raises(FeatureNotAvailableError):
+            router.execute("run https://bilibili.com/video/BV1xx")
         out = capsys.readouterr().out
-        assert "在线视频" in out or "未实现" in out
+        assert "手动下载" in out or "未实现" in out
 
     def test_nonexistent_file_raises(self):
         router, _ = make_router()
@@ -108,6 +112,32 @@ class TestRunCommand:
             router.execute(f"run {video}")
             out = capsys.readouterr().out
             assert "输出目录" in out or "教材" in out
+
+    def test_local_mp4_pipeline_error_raises(self, tmp_path):
+        """A business failure inside VideoPipeline.run() must surface as a
+        domain exception, not a silent return, so the CLI can map it to a
+        nonzero exit code."""
+        video = tmp_path / "video.mp4"
+        video.write_bytes(b"\x00")
+        router, _ = make_router()
+
+        from framelearn.errors import PipelineExecutionError
+        from framelearn.pipeline import PipelineResult
+        mock_result = PipelineResult(
+            output_dir=tmp_path,
+            markdown_path=tmp_path / "index.md",
+            keyframes=[],
+            subtitle_text="",
+            error="FFmpeg 未安装，请先安装：brew install ffmpeg",
+        )
+
+        with patch('framelearn.pipeline.VideoPipeline') as mock_cls:
+            mock_instance = MagicMock()
+            mock_instance.run.return_value = mock_result
+            mock_cls.return_value = mock_instance
+
+            with pytest.raises(PipelineExecutionError, match="FFmpeg"):
+                router.execute(f"run {video}")
 
 
 # ------------------------------------------------------------------

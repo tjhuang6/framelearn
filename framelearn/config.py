@@ -82,6 +82,8 @@ def _default_config() -> dict[str, Any]:
             "text_mode": "appserver",
             "vision_mode": "api",
             "asr_mode": "api",
+            "persist_sessions": True,
+            "privacy_hints": False,
         },
         "appserver": {
             "command": ["codex", "app-server"],

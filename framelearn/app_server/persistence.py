@@ -44,9 +44,18 @@ CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, created_
 
 
 class SessionDB:
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: Optional[str] = None, enabled: bool = True):
+        self.enabled = enabled
+        if not enabled:
+            self.conn = None
+            return
+        
         if db_path is None:
-            db_path = str(Path.home() / ".framelearn" / "sessions.db")
+            import os
+            db_path = os.getenv(
+                "FRAMELEARN_SESSION_DB",
+                str(Path.home() / ".framelearn" / "sessions.db")
+            )
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
@@ -59,6 +68,8 @@ class SessionDB:
     # ------------------------------------------------------------------
 
     def create_session(self, session_id: str, title: str = "", thread_id: str = ""):
+        if not self.enabled or not self.conn:
+            return
         now = time.time()
         self.conn.execute(
             "INSERT OR IGNORE INTO sessions (id, title, thread_id, created_at, updated_at)"
@@ -68,6 +79,8 @@ class SessionDB:
         self.conn.commit()
 
     def update_session_thread(self, session_id: str, thread_id: str):
+        if not self.enabled or not self.conn:
+            return
         self.conn.execute(
             "UPDATE sessions SET thread_id=?, updated_at=? WHERE id=?",
             (thread_id, time.time(), session_id),
@@ -75,6 +88,8 @@ class SessionDB:
         self.conn.commit()
 
     def update_session_title(self, session_id: str, title: str):
+        if not self.enabled or not self.conn:
+            return
         self.conn.execute(
             "UPDATE sessions SET title=?, updated_at=? WHERE id=?",
             (title, time.time(), session_id),
@@ -82,6 +97,8 @@ class SessionDB:
         self.conn.commit()
 
     def list_sessions(self) -> list[sqlite3.Row]:
+        if not self.enabled or not self.conn:
+            return []
         cur = self.conn.execute(
             "SELECT * FROM sessions ORDER BY updated_at DESC"
         )
@@ -104,6 +121,9 @@ class SessionDB:
         provider_item_id: Optional[str] = None,
     ) -> Optional[int]:
         """Insert a message row. Returns the new row id, or None on duplicate."""
+        if not self.enabled or not self.conn:
+            return None
+        
         import json as _json
 
         try:
@@ -137,6 +157,8 @@ class SessionDB:
             return None
 
     def get_messages(self, session_id: str) -> list[sqlite3.Row]:
+        if not self.enabled or not self.conn:
+            return []
         cur = self.conn.execute(
             "SELECT * FROM messages WHERE session_id=? ORDER BY created_at",
             (session_id,),
@@ -144,4 +166,5 @@ class SessionDB:
         return cur.fetchall()
 
     def close(self):
-        self.conn.close()
+        if self.conn:
+            self.conn.close()

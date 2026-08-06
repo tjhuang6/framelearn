@@ -96,7 +96,7 @@ class CommandParser:
 
     def _is_traditional_command(self, text: str) -> bool:
         first_word = text.strip().split()[0] if text.strip() else ""
-        return first_word in ["run", "ask", "summarize", "help"]
+        return first_word in ["run", "ask", "summarize", "help", "session"]
 
     def _parse_with_llm(self, text: str) -> str:
         """Parse natural language using available LLM backend.
