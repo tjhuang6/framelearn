@@ -222,7 +222,7 @@ Alternatives：直接 OpenAI-compatible HTTP、调用 `codex exec`、自己实�
 
 建议：定义稳定的配置优先级，例如显式 `--config` / 环境变量路径 → 当前工作目录 → 用户配置目录 → 包内默认资源；启动时打印实际配置来源，并为 editable install 与 wheel install 分别增加测试。
 
-### P2：会话和远程媒体的数据边界缺少说明 解决 [antivibe-patch-p2-data-boundary](/Users/iwill/Documents/PythonProjects/FrameLearn-fix/docs/antivibe-patch-p2-data-boundary.md)
+### P2：会话和远程媒体的数据边界缺少说明 解决 [antivibe-patch-p2-data-boundary](../mine/antivibe-patch-p2-data-boundary.md)
 
 DashScope 路径会把音频切片上传到 OSS，再通过签名 URL交给 ASR；Vision API 会发送字幕和关键帧；Codex 对话、工具调用和 reasoning 会明文保存到 `~/.framelearn/sessions.db`。当前用户文档没有集中说明这些数据去向、保留周期、清理方式或关闭持久化的方法。
 
