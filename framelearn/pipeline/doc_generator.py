@@ -440,53 +440,6 @@ class DocumentGenerator:
             frames_description=frames_desc,
         )
 
-    def _build_multimodal_inputs(
-        self,
-        keyframes: list[tuple[Path, float]],
-        subtitle: str,
-        mode: DocMode,
-    ) -> list[dict]:
-        """Build structured turn inputs with text + localImage for app-server."""
-        def format_timestamp(seconds: float) -> str:
-            h = int(seconds // 3600)
-            m = int((seconds % 3600) // 60)
-            s = int(seconds % 60)
-            if h > 0:
-                return f"{h:02d}:{m:02d}:{s:02d}"
-            else:
-                return f"{m:02d}:{s:02d}"
-
-        # Select template based on mode
-        if mode == "visual_script":
-            template = _VISUAL_SCRIPT_PROMPT
-        elif mode == "notes":
-            template = _NOTES_PROMPT
-        else:
-            template = _TEXTBOOK_PROMPT
-
-        # Build instruction with subtitle but WITHOUT frame file names
-        # (actual frames will be sent as localImage)
-        instruction = template.format(
-            subtitle=subtitle,
-            frames_description="(关键帧将以图片形式提供)",
-        )
-
-        inputs: list[dict] = [{"type": "text", "text": instruction}]
-
-        # Add each keyframe with timestamp and localImage
-        for i, (frame_path, ts) in enumerate(keyframes[:20]):
-            timestamp = format_timestamp(ts)
-            inputs.append({
-                "type": "text",
-                "text": f"\n关键帧 {i+1} [{timestamp}]:",
-            })
-            # Send absolute path as localImage
-            inputs.append({
-                "type": "localImage",
-                "path": str(frame_path.resolve()),
-            })
-
-        return inputs
 
     def _generate_via_api(
         self,
