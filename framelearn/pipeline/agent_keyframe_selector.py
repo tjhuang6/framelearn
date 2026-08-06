@@ -221,32 +221,18 @@ class AgentKeyframeSelector:
 
     def _call_text_llm(self, prompt: str) -> str:
         """Call text LLM for decision-making (fast, no images)."""
-        if self.vision_mode == "appserver":
-            from framelearn.app_server.session import AppServerSession
-            session = AppServerSession(workspace=".")
-            result = session.run_turn(prompt)
-            session.close()
-            return result.final_text or "{}"
-        else:
-            from framelearn.provider_adapter import call_text_llm
-            return call_text_llm(prompt, max_tokens=200)
+        from framelearn.provider_adapter import call_text_llm
+        return call_text_llm(prompt, max_tokens=200)
 
     def _call_vision_llm(self, prompt: str, frame_path: Path) -> str:
         """Call vision LLM with text + image."""
-        if self.vision_mode == "appserver":
-            from framelearn.app_server.session import AppServerSession
-            session = AppServerSession(workspace=".")
-            result = session.run_turn(prompt)
-            session.close()
-            return result.final_text or ""
-        else:
-            import os
+        import os
 
-            from framelearn.provider_adapter import PROVIDERS, ProviderConfig, call_llm
+        from framelearn.provider_adapter import PROVIDERS, ProviderConfig, call_llm
 
-            provider_def = PROVIDERS.get(self.vision_provider)
-            if not provider_def:
-                raise ValueError(f"Unknown vision_provider: '{self.vision_provider}'")
+        provider_def = PROVIDERS.get(self.vision_provider)
+        if not provider_def:
+            raise ValueError(f"Unknown vision_provider: '{self.vision_provider}'")
 
             if self.vision_provider == "siliconflow":
                 api_key = os.getenv("VISION_API_KEY") or os.getenv("SILICONFLOW_API_KEY", "")
