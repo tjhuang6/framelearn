@@ -124,15 +124,15 @@ class CommandParser:
         prompt = f"{SYSTEM_PROMPT}\n\n输入：{text}\n输出："
         return call_text_llm(prompt, max_tokens=100).strip()
 
-    def _parse_via_codex(self, text: str) -> str:
+    def _parse_via_rules(self, text: str) -> str:
         """Rule-based intent parser — no LLM needed.
 
         When no external API key is configured, we use simple rules:
         - Input contains a video URL or video file path → run
         - Input contains "总结" / "summarize" → summarize
-        - Everything else → ask (Codex handles it)
+        - Everything else → ask (LLM API handles it)
 
-        This is intentionally simple. The heavy lifting is done by Codex
+        This is intentionally simple. The heavy lifting is done by the LLM API
         during the ask turn, not during intent classification.
         """
         lower = text.lower().strip()
