@@ -155,7 +155,7 @@ class CommandParser:
         if any(kw in lower for kw in video_intent_keywords):
             return "error: 缺少视频链接或文件路径"
 
-        # Everything else → ask Codex
+        # Everything else → ask LLM API
         return f"ask {text}"
 
     @staticmethod
