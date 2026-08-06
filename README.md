@@ -157,7 +157,7 @@ uv run pytest
 - [文档索引与状态](docs/README.md)
 - [当前技术架构](docs/architecture.md)
 - [流水线实现说明](docs/pipeline-overview.md)
-- [AntiVibe 技术报告](docs/antivibe-technical-report.md)
+- [AntiVibe 技术报告](mine/antivibe/antivibe-technical-report.md)
 - [Codex app-server 指南](docs/codex-app-server-guide.md)
 - [隐私与数据生命周期说明](docs/privacy-and-data-lifecycle.md) ⭐
 
