@@ -7,14 +7,14 @@
 
 [runtime]
 # TEXT 场景：命令解析（可选）、ask 对话、文档生成
-# 可选：appserver（通过 codex app-server）/ api（直接调用 LLM API）
-text_mode = "appserver"
+# 统一使用 API 模式（直接调用 LLM API）
+text_mode = "api"
 
 # VISION 场景：视频关键帧分析、图片理解
-# 可选：appserver / api
+# 统一使用 API 模式
 vision_mode = "api"
 
-# Vision API 模式配置（当 vision_mode = "api" 时生效）
+# Vision API 配置
 vision_provider = "siliconflow"
 vision_model = "Qwen/Qwen3.6-35B-A3B"
 
@@ -25,28 +25,8 @@ vision_agent_max_retries = 5
 asr_mode = "api"
 asr_provider = "dashscope"
 
-# 会话持久化（保存对话历史到 ~/.framelearn/sessions.db）
-# false = 所有对话仅存在内存，进程结束后丢失
-persist_sessions = true
-
 # 隐私提示（每次任务前显示实际使用的外部服务）
 privacy_hints = false
-
-
-# ═══════════════════════════════════════════════════════════════════
-# App-Server 配置（当 *_mode = "appserver" 时生效）
-# ═══════════════════════════════════════════════════════════════════
-
-[appserver]
-# codex CLI 路径（默认从 PATH 找）
-command = ["codex", "app-server"]
-
-# 工作目录（相对于当前目录，或绝对路径）
-workspace = "."
-
-# 审批策略
-# 可选：auto_accept（自动允许所有操作）/ interactive（每次询问）/ auto_decline（拒绝所有）
-approval_policy = "interactive"
 
 # ═══════════════════════════════════════════════════════════════════
 # 视频处理配置
