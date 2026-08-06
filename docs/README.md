@@ -11,7 +11,7 @@
 - [当前技术架构](architecture.md)
 - [Current Technical Architecture](architecture.en.md)
 - [流水线实现说明](pipeline-overview.md)
-- [AntiVibe 技术报告](antivibe-technical-report.md)
+- [AntiVibe 技术报告](../mine/antivibe/antivibe-technical-report.md)
 - [Codex app-server 指南](codex-app-server-guide.md)
 
 ## 专题研究文档
