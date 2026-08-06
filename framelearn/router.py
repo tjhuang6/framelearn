@@ -133,7 +133,6 @@ class CommandRouter:
     def _ask_via_api(self, question: str) -> int:
         """Ask via provider_adapter (direct API call)."""
         from framelearn.provider_adapter import call_text_llm
-        print("使用 API 模式...")
         answer = call_text_llm(question, max_tokens=2000)
         print(answer)
         return 0
