@@ -1,4 +1,4 @@
-"""Document generator using Codex app-server or Vision API."""
+"""Document generator using Vision API."""
 
 from pathlib import Path
 from typing import Literal, Optional
