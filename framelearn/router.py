@@ -3,7 +3,6 @@
 import os
 from typing import Optional
 
-from framelearn.app_server.runtime import RuntimeAdapter
 from framelearn.config import get as config_get
 from framelearn.errors import FeatureNotAvailableError, PipelineExecutionError
 
