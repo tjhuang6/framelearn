@@ -137,7 +137,7 @@ output/video_name/
 
 - **完整设计**: [cache_manifest.md](cache_manifest.md)
 - **架构图**: [cache_architecture.md](cache_architecture.md)
-- **完成总结**: [../mine/CACHE_FIX_SUMMARY.md](../mine/CACHE_FIX_SUMMARY.md)
+- **完成总结**: [../mine/antivibe/CACHE_FIX_SUMMARY.md](../mine/antivibe/CACHE_FIX_SUMMARY.md)
 
 ## 🧪 测试
 
