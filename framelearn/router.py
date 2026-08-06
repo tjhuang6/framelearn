@@ -128,33 +128,7 @@ class CommandRouter:
         if not question:
             raise ValueError("缺少问题内容")
 
-        text_mode = config_get("runtime.text_mode", "appserver")
-
-        if text_mode == "api":
-            return self._ask_via_api(question)
-        else:
-            return self._ask_via_appserver(question)
-
-    def _ask_via_appserver(self, question: str) -> int:
-        """Ask via codex app-server (default)."""
-        runtime = self._get_runtime()
-
-        def _ui(event: dict):
-            method = event.get("method", "")
-            params = event.get("params") or {}
-            if method == "item/agentMessage/delta":
-                delta = params.get("delta", "")
-                print(delta, end="", flush=True)
-
-        result = runtime.run_turn(question, ui_callback=_ui)
-        print()  # newline after streaming output
-
-        if result.error:
-            print(f"❌ {result.error}")
-        elif result.final_text:
-            # final_text already streamed via ui_callback; nothing more to print
-            pass
-        return 0
+        return self._ask_via_api(question)
 
     def _ask_via_api(self, question: str) -> int:
         """Ask via provider_adapter (direct API call)."""
