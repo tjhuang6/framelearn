@@ -87,11 +87,6 @@ class CommandRouter:
         else:
             raise ValueError(f"未知命令：{cmd}")
 
-    def close(self):
-        if self._runtime:
-            self._runtime.close()
-            self._runtime = None
-
     # ------------------------------------------------------------------
     # Command handlers
     # ------------------------------------------------------------------
