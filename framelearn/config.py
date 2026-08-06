@@ -53,7 +53,7 @@ def get(key: str, default: Any = None) -> Any:
     """Get a config value by dot-separated key.
 
     Examples:
-        get("runtime.text_mode") → "appserver"
+        get("runtime.text_mode") → "api"
         get("video.scene_threshold") → 0.3
     """
     config = load_config()
