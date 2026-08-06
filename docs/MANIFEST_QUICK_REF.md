@@ -135,9 +135,9 @@ output/video_name/
 
 ## 📚 更多信息
 
-- **完整设计**: [docs/cache_manifest.md](docs/cache_manifest.md)
-- **架构图**: [docs/cache_architecture.md](docs/cache_architecture.md)
-- **完成总结**: [CACHE_FIX_SUMMARY.md](CACHE_FIX_SUMMARY.md)
+- **完整设计**: [cache_manifest.md](cache_manifest.md)
+- **架构图**: [cache_architecture.md](cache_architecture.md)
+- **完成总结**: [../mine/CACHE_FIX_SUMMARY.md](../mine/CACHE_FIX_SUMMARY.md)
 
 ## 🧪 测试
 
