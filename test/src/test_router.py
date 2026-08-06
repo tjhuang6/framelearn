@@ -22,18 +22,18 @@ def make_router(workspace="."):
 
 class TestCommandDispatch:
     def test_unknown_command_raises(self):
-        router, _ = make_router()
+        router = make_router()
         with pytest.raises(ValueError, match="未知命令"):
             router.execute("unknown_cmd arg")
 
     def test_help_prints(self, capsys):
-        router, _ = make_router()
+        router = make_router()
         router.execute("help")
         out = capsys.readouterr().out
         assert "framelearn" in out.lower() or "FrameLearn" in out
 
     def test_summarize_prints(self, capsys):
-        router, _ = make_router()
+        router = make_router()
         router.execute("summarize")
         out = capsys.readouterr().out
         assert "summarize" in out.lower() or "总结" in out
