@@ -189,11 +189,6 @@ class CommandRouter:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _get_runtime(self) -> RuntimeAdapter:
-        if self._runtime is None:
-            self._runtime = RuntimeAdapter(workspace=self._workspace)
-        return self._runtime
-
     def _is_valid_video_url(self, url: str) -> bool:
         return "youtube.com" in url or "youtu.be" in url or "bilibili.com" in url
 
