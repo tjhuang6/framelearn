@@ -223,36 +223,3 @@ class AgentKeyframeSelector:
         """Call text LLM for decision-making (fast, no images)."""
         from framelearn.provider_adapter import call_text_llm
         return call_text_llm(prompt, max_tokens=200)
-
-    def _call_vision_llm(self, prompt: str, frame_path: Path) -> str:
-        """Call vision LLM with text + image."""
-        import os
-
-        from framelearn.provider_adapter import PROVIDERS, ProviderConfig, call_llm
-
-        provider_def = PROVIDERS.get(self.vision_provider)
-        if not provider_def:
-            raise ValueError(f"Unknown vision_provider: '{self.vision_provider}'")
-
-            if self.vision_provider == "siliconflow":
-                api_key = os.getenv("VISION_API_KEY") or os.getenv("SILICONFLOW_API_KEY", "")
-                base_url = (
-                    os.getenv("VISION_BASE_URL")
-                    or os.getenv("SILICONFLOW_BASE_URL", provider_def["base_url"])
-                )
-            else:
-                api_key = os.getenv("VISION_API_KEY", "")
-                base_url = os.getenv("VISION_BASE_URL", provider_def["base_url"])
-
-            config = ProviderConfig(
-                provider=self.vision_provider,
-                api_key=api_key,
-                model=self.vision_model,
-                base_url=base_url,
-            )
-            return call_llm(
-                prompt,
-                config,
-                images=[str(frame_path)],
-                max_tokens=200,
-            )
