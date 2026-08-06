@@ -347,38 +347,18 @@ class VideoPipeline:
             # Step 6: Generate documents
             generator = DocumentGenerator()
             doc_mode = config_get("doc_generation.mode", "visual_script")
-            
+
             # Track document generation API usage
-            text_mode = config_get("runtime.text_mode", "appserver")
-            if text_mode == "api":
-                from framelearn.provider_adapter import load_text_config
-                try:
-                    text_config = load_text_config()
-                    tracker.add_service(
-                        "text_api_docgen",
-                        f"Text API 文档生成 ({text_config.provider}/{text_config.model})"
-                    )
-                except Exception:
-                    tracker.add_service("text_api_docgen", "Text API 文档生成")
-            elif text_mode == "appserver":
+            from framelearn.provider_adapter import load_text_config
+            try:
+                text_config = load_text_config()
                 tracker.add_service(
-                    "codex_docgen",
-                    "Codex app-server 文档生成"
+                    "text_api_docgen",
+                    f"Text API 文档生成 ({text_config.provider}/{text_config.model})"
                 )
-            
-            # Track session persistence
-            persist_enabled = config_get("runtime.persist_sessions", True)
-            if persist_enabled and text_mode == "appserver":
-                import os
-                db_path = os.getenv(
-                    "FRAMELEARN_SESSION_DB",
-                    str(Path.home() / ".framelearn" / "sessions.db")
-                )
-                tracker.add_service(
-                    "session_db",
-                    f"本地 SQLite 会话持久化 ({db_path})"
-                )
-            
+            except Exception:
+                tracker.add_service("text_api_docgen", "Text API 文档生成")
+
             # Pass ASR info to generator for manifest
             asr_provider = "unknown"
             asr_model = "unknown"
