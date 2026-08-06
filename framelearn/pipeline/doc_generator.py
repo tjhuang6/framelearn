@@ -488,42 +488,6 @@ class DocumentGenerator:
 
         return inputs
 
-    def _generate_via_appserver(
-        self,
-        keyframes: list[tuple[Path, float]],
-        subtitle: str,
-        mode: DocMode,
-    ) -> str:
-        """Generate via codex app-server with multimodal input."""
-        from framelearn.app_server.session import AppServerSession
-
-        # Build structured multimodal inputs
-        inputs = self._build_multimodal_inputs(keyframes, subtitle, mode)
-
-        session = AppServerSession(workspace=".")
-        result = session.run_turn(inputs=inputs)
-        session.close()
-
-        if result.error:
-            raise RuntimeError(f"Document generation failed: {result.error}")
-
-        # Codex writes the content to a file and returns a summary in final_text.
-        # Prefer reading the actual written .md file over the summary message.
-        for path in result.written_files:
-            if path.endswith(".md"):
-                try:
-                    return Path(path).read_text(encoding="utf-8")
-                except Exception:
-                    continue
-
-        # Fallback: return whatever final_text we got
-        get_reporter().record_fallback(
-            "doc_generator.appserver",
-            "未找到写入的 .md 文件，回退为使用 final_text 作为文档内容",
-            detail={"mode": mode, "written_files": list(result.written_files)},
-        )
-        return result.final_text or ""
-
     def _generate_via_api(
         self,
         keyframes: list[tuple[Path, float]],
