@@ -80,7 +80,7 @@ timestamp = h * 3600 + m * 60 + s + ms / 1000.0
 
 ## 测试覆盖
 
-见 `tests/test_keyframe_naming.py`:
+见 `test/test_keyframe_naming.py`:
 - ✅ 毫秒精度格式化
 - ✅ 同一秒内多帧无冲突
 - ✅ 时间戳解析往返一致

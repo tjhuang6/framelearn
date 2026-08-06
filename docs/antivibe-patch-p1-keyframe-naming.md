@@ -55,7 +55,7 @@ frame_name = f"frame_{h:02d}h{m:02d}m{s:02d}s{ms:03d}ms_agent_{len(selected)+1:0
 
 #### 3. 测试覆盖
 
-**tests/test_keyframe_naming.py** - 7 个测试全部通过 ✅
+**test/test_keyframe_naming.py** - 7 个测试全部通过 ✅
 
 1. ✅ `test_millisecond_formatting` - 毫秒精度格式化正确
 2. ✅ `test_no_collision_same_second` - 同一秒内多帧无冲突
@@ -109,7 +109,7 @@ frame_name = f"frame_{h:02d}h{m:02d}m{s:02d}s{ms:03d}ms_agent_{len(selected)+1:0
 ### 测试结果
 ```bash
 cd /Users/iwill/Documents/PythonProjects/FrameLearn-fix
-pytest tests/test_keyframe_naming.py -v
+pytest test/test_keyframe_naming.py -v
 ```
 
 ✅ **7/7 测试通过**
@@ -136,7 +136,7 @@ pytest tests/test_keyframe_naming.py -v
 - `framelearn/pipeline/doc_generator.py` - 提示词示例
 
 ### 新增的文件
-- `tests/test_keyframe_naming.py` - 测试套件（7 个测试）
+- `test/test_keyframe_naming.py` - 测试套件（7 个测试）
 - `docs/KEYFRAME_NAMING.md` - 设计文档
 
 ## 总结
