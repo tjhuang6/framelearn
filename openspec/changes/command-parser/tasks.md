@@ -2,9 +2,9 @@
 
 ## 前置条件
 
-- [ ] 确认项目结构（`framelearn/` 目录已创建）
-- [ ] 确认依赖管理工具（uv）已安装
-- [ ] 确认 HelloAgents 已添加到依赖
+- [x] 确认项目结构（`framelearn/` 目录已创建）
+- [x] 确认依赖管理工具（uv）已安装
+- [x] 确认 HelloAgents 已添加到依赖
 
 ---
 
@@ -12,9 +12,9 @@
 
 ### 1. 创建项目骨架
 
-- [ ] 创建 `framelearn/__init__.py`
-- [ ] 创建 `framelearn/__main__.py`（空骨架）
-- [ ] 创建 `pyproject.toml`，添加基础依赖：
+- [x] 创建 `framelearn/__init__.py`
+- [x] 创建 `framelearn/__main__.py`（空骨架）
+- [x] 创建 `pyproject.toml`，添加基础依赖：
   ```toml
   [project]
   name = "framelearn"
@@ -24,7 +24,7 @@
       "openai>=1.0.0",
   ]
   ```
-- [ ] 运行 `uv sync` 确认依赖安装成功
+- [x] 运行 `uv sync` 确认依赖安装成功
 
 ---
 
@@ -32,14 +32,14 @@
 
 **文件**：`framelearn/command_parser.py`
 
-- [ ] 定义 `SYSTEM_PROMPT` 常量（从 `docs/modules/command_parser.md` 复制，包含本地文件支持）
-- [ ] 实现 `CommandParser` 类：
-  - [ ] `__init__(self, llm: HelloAgentsLLM)`
-  - [ ] `parse(self, user_input: str) -> str`
-  - [ ] `_is_traditional_command(self, text: str) -> bool`
-  - [ ] `_parse_with_llm(self, text: str) -> str`
-- [ ] 处理 `error:` 格式输出（抛出 `ValueError`）
-- [ ] 添加 docstring 注释
+- [x] 定义 `SYSTEM_PROMPT` 常量（从 `docs/modules/command_parser.md` 复制，包含本地文件支持）
+- [x] 实现 `CommandParser` 类：
+  - [x] `__init__(self, llm: HelloAgentsLLM)`
+  - [x] `parse(self, user_input: str) -> str`
+  - [x] `_is_traditional_command(self, text: str) -> bool`
+  - [x] `_parse_with_llm(self, text: str) -> str`
+- [x] 处理 `error:` 格式输出（抛出 `ValueError`）
+- [x] 添加 docstring 注释
 
 **验收标准**：
 - 传统命令（`run ...`）直接返回，不调用 LLM
@@ -52,16 +52,16 @@
 
 **文件**：`framelearn/router.py`
 
-- [ ] 实现 `CommandRouter` 类：
-  - [ ] `__init__(self)`（pipeline 和 qa_module 延迟初始化）
-  - [ ] `execute(self, command: str)`（命令分发）
-  - [ ] `_run_pipeline(self, source: str)`（区分 URL 和本地文件）
-  - [ ] `_ask_question(self, question: str)`
-  - [ ] `_summarize_learning(self)`
-  - [ ] `_show_help(self)`
-  - [ ] `_is_valid_video_url(self, url: str) -> bool`
-  - [ ] `_is_video_file(self, path: str) -> bool`
-- [ ] 定义 `HELP_TEXT` 常量（使用说明）
+- [x] 实现 `CommandRouter` 类：
+  - [x] `__init__(self)`（pipeline 和 qa_module 延迟初始化）
+  - [x] `execute(self, command: str)`（命令分发）
+  - [x] `_run_pipeline(self, source: str)`（区分 URL 和本地文件）
+  - [x] `_ask_question(self, question: str)`
+  - [x] `_summarize_learning(self)`
+  - [x] `_show_help(self)`
+  - [x] `_is_valid_video_url(self, url: str) -> bool`
+  - [x] `_is_video_file(self, path: str) -> bool`
+- [x] 定义 `HELP_TEXT` 常量（使用说明）
 
 **临时实现**（主流程未完成前）：
 - `_run_pipeline`：
@@ -84,15 +84,15 @@
 
 **文件**：`framelearn/__main__.py`
 
-- [ ] 实现 `main()` 函数：
-  - [ ] 解析 `sys.argv`
-  - [ ] 初始化 `HelloAgentsLLM`（DeepSeek 配置）
-  - [ ] 初始化 `CommandParser` 和 `CommandRouter`
-  - [ ] 调用 `parser.parse()`
-  - [ ] 打印解析结果（`[解析意图] → ...`）
-  - [ ] 调用 `router.execute()`
-  - [ ] 错误处理和友好提示
-- [ ] 添加 `if __name__ == "__main__"` 入口
+- [x] 实现 `main()` 函数：
+  - [x] 解析 `sys.argv`
+  - [x] 初始化 `HelloAgentsLLM`（DeepSeek 配置）
+  - [x] 初始化 `CommandParser` 和 `CommandRouter`
+  - [x] 调用 `parser.parse()`
+  - [x] 打印解析结果（`[解析意图] → ...`）
+  - [x] 调用 `router.execute()`
+  - [x] 错误处理和友好提示
+- [x] 添加 `if __name__ == "__main__"` 入口
 
 **环境变量配置**（`.env` 或直接硬编码测试）：
 ```bash
@@ -144,10 +144,10 @@ DEEPSEEK_API_KEY=your_key_here
 
 **文件**：`tests/test_router.py`
 
-- [ ] 测试命令分发逻辑
-- [ ] 测试 URL 验证
-- [ ] 测试本地文件验证（存在性、格式）
-- [ ] 测试参数缺失错误
+- [x] 测试命令分发逻辑
+- [x] 测试 URL 验证
+- [x] 测试本地文件验证（存在性、格式）
+- [x] 测试参数缺失错误
 
 **运行测试**：
 ```bash
@@ -225,11 +225,11 @@ pytest tests/ -v
 
 ### 7. 文档更新
 
-- [ ] 更新 `README.md` "使用示例" 章节：
+- [x] 更新 `README.md` "使用示例" 章节：
   - 添加自然语言示例
   - 保留传统命令示例（向后兼容）
 - [ ] 更新 `README.en.md` 同步英文版
-- [ ] 在 `docs/architecture.md` 确认已包含 CommandParser 说明（已完成）
+- [x] 在 `docs/architecture.md` 确认已包含 CommandParser 说明（已完成）
 
 ---
 

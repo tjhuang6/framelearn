@@ -4,9 +4,9 @@
 
 - [x] ASRAdapter（硅基流动版本）已实现
 - [x] FFmpegHelper 已实现
-- [ ] 已有阿里云账号 + 已开通百炼服务
-- [ ] 已有阿里云 OSS Bucket（私有）
-- [ ] 已配置 DASHSCOPE_API_KEY / OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET
+- [x] 已有阿里云账号 + 已开通百炼服务
+- [x] 已有阿里云 OSS Bucket（私有）
+- [x] 已配置 DASHSCOPE_API_KEY / OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET
 
 ---
 
@@ -14,9 +14,9 @@
 
 ### Task 1：安装依赖 + 更新配置
 
-- [ ] 添加 `oss2` 依赖：`uv add oss2`
-- [ ] 更新 `settings.toml` 添加 `[asr]` 和 `[asr.oss]` 配置
-- [ ] 更新 `.env.example` 添加 `DASHSCOPE_API_KEY`、`OSS_*`
+- [x] 添加 `oss2` 依赖：`uv add oss2`
+- [x] 更新 `settings.toml` 添加 `[asr]` 和 `[asr.oss]` 配置
+- [x] 更新 `.env.example` 添加 `DASHSCOPE_API_KEY`、`OSS_*`
 
 **验收**：`uv sync` 无报错
 
@@ -24,10 +24,10 @@
 
 ### Task 2：创建 asr_backends 包结构
 
-- [ ] 创建 `framelearn/pipeline/asr_backends/__init__.py`
-- [ ] 将现有硅基流动逻辑移入 `asr_backends/siliconflow.py`
-- [ ] 更新 `asr_adapter.py` 路由到对应 backend
-- [ ] 确保已有测试全部通过（不破坏现有功能）
+- [x] 创建 `framelearn/pipeline/asr_backends/__init__.py`
+- [x] 将现有硅基流动逻辑移入 `asr_backends/siliconflow.py`
+- [x] 更新 `asr_adapter.py` 路由到对应 backend
+- [x] 确保已有测试全部通过（不破坏现有功能）
 
 **验收**：
 ```bash
@@ -41,11 +41,11 @@ pytest test/src/test_pipeline.py -v
 
 **文件**：`framelearn/pipeline/asr_backends/oss_client.py`
 
-- [ ] `__init__`：从 .env 读取凭证，初始化 oss2.Bucket
-- [ ] `upload(local_path, object_key) -> str`
-- [ ] `sign_url(object_key, ttl_seconds) -> str`
-- [ ] `delete(object_key)`
-- [ ] 参数验证（bucket / key_id / key_secret 不能为空）
+- [x] `__init__`：从 .env 读取凭证，初始化 oss2.Bucket
+- [x] `upload(local_path, object_key) -> str`
+- [x] `sign_url(object_key, ttl_seconds) -> str`
+- [x] `delete(object_key)`
+- [x] 参数验证（bucket / key_id / key_secret 不能为空）
 
 **验收**：
 ```python
@@ -62,10 +62,10 @@ client.delete(key)
 
 **位置**：`framelearn/pipeline/asr_backends/dashscope.py` 内部方法
 
-- [ ] `split_audio(audio_path, chunk_duration, temp_dir) -> list[AudioChunk]`
-- [ ] 使用 ffprobe 获取音频总时长
-- [ ] 用 FFmpeg 切片（`-ss` + `-t` + `-c copy`）
-- [ ] 生成 `AudioChunk` 列表，含 `start_sec` 和 `duration_sec`
+- [x] `split_audio(audio_path, chunk_duration, temp_dir) -> list[AudioChunk]`
+- [x] 使用 ffprobe 获取音频总时长
+- [x] 用 FFmpeg 切片（`-ss` + `-t` + `-c copy`）
+- [x] 生成 `AudioChunk` 列表，含 `start_sec` 和 `duration_sec`
 
 **验收**：
 ```python
@@ -83,10 +83,10 @@ assert chunks[2].start_sec == 3600
 
 **位置**：`framelearn/pipeline/asr_backends/dashscope.py`
 
-- [ ] `_submit_task(signed_url) -> str`（提交识别任务，返回 task_id）
-- [ ] `_poll_task(task_id, timeout) -> dict`（轮询直到完成，返回结果 JSON URL）
-- [ ] `_download_result(result_url) -> dict`（下载结果 JSON）
-- [ ] 错误处理：4xx 直接报错，轮询超时标记失败
+- [x] `_submit_task(signed_url) -> str`（提交识别任务，返回 task_id）
+- [x] `_poll_task(task_id, timeout) -> dict`（轮询直到完成，返回结果 JSON URL）
+- [x] `_download_result(result_url) -> dict`（下载结果 JSON）
+- [x] 错误处理：4xx 直接报错，轮询超时标记失败
 
 **验收**：
 ```python
@@ -101,10 +101,10 @@ assert result["task_status"] == "SUCCEEDED"
 
 **位置**：`DashscopeBackend._upload_and_submit_all()`
 
-- [ ] 使用 `ThreadPoolExecutor(max_workers=6)` 并行上传 + 提交
-- [ ] 每个线程：上传 → 生成签名 URL → 提交任务
-- [ ] 收集所有 `task_id`
-- [ ] 异常处理：单段失败不中断其他段
+- [x] 使用 `ThreadPoolExecutor(max_workers=6)` 并行上传 + 提交
+- [x] 每个线程：上传 → 生成签名 URL → 提交任务
+- [x] 收集所有 `task_id`
+- [x] 异常处理：单段失败不中断其他段
 
 **验收**：
 - 3 段音频并行上传，总时间约为单段时间（而不是 3 倍）
@@ -115,11 +115,11 @@ assert result["task_status"] == "SUCCEEDED"
 
 **位置**：`DashscopeBackend._merge_results()`
 
-- [ ] 遍历每段结果，给时间戳加 `chunk.start_sec` 偏移
-- [ ] 合并所有 `TranscriptSegment`
-- [ ] 生成 `full_text`
-- [ ] 生成 SRT 内容（`_build_srt`）
-- [ ] 返回 `TranscriptResult(has_timestamps=True, srt=...)`
+- [x] 遍历每段结果，给时间戳加 `chunk.start_sec` 偏移
+- [x] 合并所有 `TranscriptSegment`
+- [x] 生成 `full_text`
+- [x] 生成 SRT 内容（`_build_srt`）
+- [x] 返回 `TranscriptResult(has_timestamps=True, srt=...)`
 
 **验收**：
 ```python
@@ -134,9 +134,9 @@ assert segments[n].start == 1805.0
 
 **位置**：`DashscopeBackend.transcribe()` 的 `finally` 块
 
-- [ ] 所有段识别完成后，删除 OSS 中对应的文件
-- [ ] 清理失败只记录警告，不影响主流程
-- [ ] 清理本地临时切片文件
+- [x] 所有段识别完成后，删除 OSS 中对应的文件
+- [x] 清理失败只记录警告，不影响主流程
+- [x] 清理本地临时切片文件
 
 ---
 
@@ -144,8 +144,8 @@ assert segments[n].start == 1805.0
 
 **文件**：`framelearn/pipeline/video_pipeline.py`
 
-- [ ] `transcript.has_timestamps is True` 时，保存 `src/subtitle.srt`
-- [ ] 打印提示：`✅ 字幕文件：src/subtitle.srt`
+- [x] `transcript.has_timestamps is True` 时，保存 `src/subtitle.srt`
+- [x] 打印提示：`✅ 字幕文件：src/subtitle.srt`
 
 **验收**：
 ```

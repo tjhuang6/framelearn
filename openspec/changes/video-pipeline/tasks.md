@@ -25,6 +25,8 @@
 from framelearn.pipeline import VideoPipeline
 ```
 
+- [x] 已完成
+
 ---
 
 #### Task 1.2：实现 FFmpegHelper
@@ -240,6 +242,8 @@ framelearn run test.mp4
 # 输出：✅ 教材已生成：output/test/index.md
 ```
 
+- [x] 已完成
+
 **依赖**：Task 5.1
 
 ---
@@ -251,6 +255,8 @@ framelearn run test.mp4
 **文件**：
 - `settings.toml` — 添加 `[asr]` 和 `[video]` 配置
 - `.env.example` — 添加 `SILICONFLOW_API_KEY`
+
+- [x] 已完成
 
 **依赖**：无
 
@@ -269,6 +275,8 @@ pillow = ">=10.0.0"
 ```bash
 uv sync
 ```
+
+- [x] 已完成
 
 **依赖**：无
 
@@ -292,6 +300,8 @@ uv sync
 pytest test/src/test_pipeline.py -v
 # 全部通过
 ```
+
+- [x] 已完成
 
 **依赖**：所有实现任务
 
