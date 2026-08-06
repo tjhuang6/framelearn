@@ -13,14 +13,7 @@ from framelearn.router import CommandRouter
 
 def make_router(workspace="."):
     router = CommandRouter(workspace=workspace)
-    # Inject a mock runtime so we never actually call codex
-    mock_runtime = MagicMock()
-    mock_result = MagicMock()
-    mock_result.error = None
-    mock_result.final_text = "Codex answer"
-    mock_runtime.run_turn.return_value = mock_result
-    router._runtime = mock_runtime
-    return router, mock_runtime
+    return router
 
 
 # ------------------------------------------------------------------
