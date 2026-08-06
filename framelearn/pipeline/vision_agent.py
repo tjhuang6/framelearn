@@ -103,7 +103,7 @@ class VisionAgentEvaluator:
 
     def __init__(self) -> None:
         # 2.2: read max_retries from config, default 5
-        self.max_retries: int = int(config_get("runtime.vision_agent_max_retries", 5))
+        self.max_retries: int = int(config_get("vision.vision_agent_max_retries", 5))
         self._config: ProviderConfig = load_vision_config()
 
     def evaluate(

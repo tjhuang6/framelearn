@@ -22,13 +22,17 @@ def test_privacy_tracker_integration():
     
     # Mock config to enable privacy hints
     mock_config = {
-        "runtime": {
-            "privacy_hints": True,
-            "persist_sessions": True,
+        "text": {
             "text_mode": "appserver",
+        },
+        "vision": {
             "vision_mode": "api",
             "vision_provider": "siliconflow",
             "vision_model": "Qwen3.6-35B-A3B",
+        },
+        "privacy": {
+            "privacy_hints": True,
+            "persist_sessions": True,
         },
         "asr": {
             "provider": "dashscope",
@@ -96,8 +100,8 @@ def test_privacy_tracker_integration():
     with patch('framelearn.config.get', side_effect=mock_config_get):
         from framelearn.config import get as config_get
         
-        privacy_hints = config_get("runtime.privacy_hints", False)
-        persist_sessions = config_get("runtime.persist_sessions", True)
+        privacy_hints = config_get("privacy.privacy_hints", False)
+        persist_sessions = config_get("privacy.persist_sessions", True)
         
         assert privacy_hints is True
         assert persist_sessions is True

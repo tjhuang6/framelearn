@@ -53,7 +53,7 @@ def get(key: str, default: Any = None) -> Any:
     """Get a config value by dot-separated key.
 
     Examples:
-        get("runtime.text_mode") → "api"
+        get("text.text_mode") → "api"
         get("video.scene_threshold") → 0.3
     """
     config = load_config()
@@ -78,10 +78,13 @@ def reload():
 def _default_config() -> dict[str, Any]:
     """Built-in default config when settings.toml is missing."""
     return {
-        "runtime": {
+        "text": {
             "text_mode": "api",
+        },
+        "vision": {
             "vision_mode": "api",
-            "asr_mode": "api",
+        },
+        "privacy": {
             "privacy_hints": False,
         },
         "video": {

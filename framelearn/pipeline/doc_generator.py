@@ -462,8 +462,8 @@ class DocumentGenerator:
             image_paths.append(str(frame_path))
 
         # Build config from settings.toml (overrides env vars)
-        provider_key = config_get("runtime.vision_provider", "siliconflow")
-        model = model_override or config_get("runtime.vision_model", "Qwen/Qwen2.5-VL-72B-Instruct")
+        provider_key = config_get("vision.vision_provider", "siliconflow")
+        model = model_override or config_get("vision.vision_model", "Qwen/Qwen2.5-VL-72B-Instruct")
         provider_def = PROVIDERS.get(provider_key)
         if not provider_def:
             raise ValueError(f"Unknown vision_provider: '{provider_key}'")

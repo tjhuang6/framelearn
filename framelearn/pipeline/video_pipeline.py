@@ -58,7 +58,7 @@ class VideoPipeline:
         print(f"📹 开始处理视频：{self.video_path.name}")
 
         # Initialize privacy tracker
-        privacy_hints_enabled = config_get("runtime.privacy_hints", False)
+        privacy_hints_enabled = config_get("privacy.privacy_hints", False)
         tracker = PrivacyTracker(enabled=privacy_hints_enabled)
         set_tracker(tracker)
 
@@ -325,10 +325,10 @@ class VideoPipeline:
                 from framelearn.pipeline.agent_keyframe_selector import AgentKeyframeSelector
                 
                 # Track vision API usage
-                vision_mode = config_get("runtime.vision_mode", "appserver")
+                vision_mode = config_get("vision.vision_mode", "appserver")
                 if vision_mode == "api":
-                    vision_provider = config_get("runtime.vision_provider", "unknown")
-                    vision_model = config_get("runtime.vision_model", "unknown")
+                    vision_provider = config_get("vision.vision_provider", "unknown")
+                    vision_model = config_get("vision.vision_model", "unknown")
                     tracker.add_service(
                         "vision_api_keyframe",
                         f"Vision API 关键帧分析 ({vision_provider}/{vision_model})"

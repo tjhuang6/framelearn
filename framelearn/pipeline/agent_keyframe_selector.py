@@ -49,9 +49,9 @@ class AgentKeyframeSelector:
     """
 
     def __init__(self):
-        self.vision_mode = config_get("runtime.vision_mode", "appserver")
-        self.vision_provider = config_get("runtime.vision_provider", "deepseek")
-        self.vision_model = config_get("runtime.vision_model", "deepseek-reasoner")
+        self.vision_mode = config_get("vision.vision_mode", "appserver")
+        self.vision_provider = config_get("vision.vision_provider", "deepseek")
+        self.vision_model = config_get("vision.vision_model", "deepseek-reasoner")
 
     def select(
         self,

@@ -45,18 +45,18 @@ class TestCommandDispatch:
 
 class TestRunCommand:
     def test_missing_source_raises(self):
-        router, _ = make_router()
+        router = make_router()
         with pytest.raises(ValueError, match="缺少视频"):
             router.execute("run")
 
     def test_invalid_url_raises(self):
-        router, _ = make_router()
+        router = make_router()
         with pytest.raises(ValueError, match="无效的视频链接"):
             router.execute("run https://notsupported.com/video")
 
     def test_valid_youtube_url_raises_not_available(self, capsys):
         from framelearn.errors import FeatureNotAvailableError
-        router, _ = make_router()
+        router = make_router()
         with pytest.raises(FeatureNotAvailableError):
             router.execute("run https://youtube.com/watch?v=xxx")
         out = capsys.readouterr().out
@@ -64,28 +64,28 @@ class TestRunCommand:
 
     def test_valid_bilibili_url_raises_not_available(self, capsys):
         from framelearn.errors import FeatureNotAvailableError
-        router, _ = make_router()
+        router = make_router()
         with pytest.raises(FeatureNotAvailableError):
             router.execute("run https://bilibili.com/video/BV1xx")
         out = capsys.readouterr().out
         assert "手动下载" in out or "未实现" in out
 
     def test_nonexistent_file_raises(self):
-        router, _ = make_router()
+        router = make_router()
         with pytest.raises(ValueError, match="文件不存在"):
             router.execute("run /nonexistent/video.mp4")
 
     def test_unsupported_format_raises(self, tmp_path):
         pdf = tmp_path / "doc.pdf"
         pdf.write_text("dummy")
-        router, _ = make_router()
+        router = make_router()
         with pytest.raises(ValueError, match="不支持的文件格式"):
             router.execute(f"run {pdf}")
 
     def test_valid_local_mp4_calls_pipeline(self, tmp_path, capsys):
         video = tmp_path / "video.mp4"
         video.write_bytes(b"\x00")
-        router, _ = make_router()
+        router = make_router()
 
         # Mock the VideoPipeline class itself
         from framelearn.pipeline import PipelineResult
@@ -112,7 +112,7 @@ class TestRunCommand:
         nonzero exit code."""
         video = tmp_path / "video.mp4"
         video.write_bytes(b"\x00")
-        router, _ = make_router()
+        router = make_router()
 
         from framelearn.errors import PipelineExecutionError
         from framelearn.pipeline import PipelineResult
@@ -139,11 +139,11 @@ class TestRunCommand:
 
 class TestAskCommand:
     def test_empty_question_raises(self):
-        router, _ = make_router()
+        router = make_router()
         with pytest.raises(ValueError, match="缺少问题内容"):
             router.execute("ask")
 
-    @patch("framelearn.router.call_text_llm")
+    @patch("framelearn.provider_adapter.call_text_llm")
     def test_question_calls_api(self, mock_call_text_llm):
         mock_call_text_llm.return_value = "Answer from API"
         router = make_router()

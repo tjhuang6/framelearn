@@ -2,14 +2,20 @@
 # 敏感信息请放在 .env 文件中
 
 # ═══════════════════════════════════════════════════════════════════
-# 运行模式配置
+# 一、文本模式配置 [text]
 # ═══════════════════════════════════════════════════════════════════
 
-[runtime]
+[text]
 # TEXT 场景：命令解析（可选）、ask 对话、文档生成
 # 统一使用 API 模式（直接调用 LLM API）
 text_mode = "api"
 
+
+# ═══════════════════════════════════════════════════════════════════
+# 二、视觉（Vision）模式配置 [vision]
+# ═══════════════════════════════════════════════════════════════════
+
+[vision]
 # VISION 场景：视频关键帧分析、图片理解
 # 统一使用 API 模式
 vision_mode = "api"
@@ -21,15 +27,77 @@ vision_model = "Qwen/Qwen3.6-35B-A3B"
 # Vision Agent 工具调用循环最大重试次数（capture_frame 的上限）
 vision_agent_max_retries = 5
 
-# ASR 场景：音频转文字（只支持 api）
-asr_mode = "api"
-asr_provider = "dashscope"
 
+# ═══════════════════════════════════════════════════════════════════
+# 三、隐私提示配置 [privacy]
+# ═══════════════════════════════════════════════════════════════════
+
+[privacy]
 # 隐私提示（每次任务前显示实际使用的外部服务）
 privacy_hints = false
 
+
 # ═══════════════════════════════════════════════════════════════════
-# 视频处理配置
+# 四、个性化风格配置 [style]
+# ═══════════════════════════════════════════════════════════════════
+
+[style]
+# 语言风格：relaxed（轻松）/ balanced（平衡）/ professional（专业）
+tone = "balanced"
+
+# 详略程度：brief（简略）/ standard（标准）/ detailed（详实）
+detail_level = "detailed"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 五、ASR 音频转文字配置 [asr]
+# ═══════════════════════════════════════════════════════════════════
+
+[asr]
+# ASR 场景：音频转文字（只支持 api）
+mode = "api"
+
+# 可选：siliconflow（无时间戳，简单）/ dashscope（词级时间戳，推荐长视频）
+provider = "dashscope"
+# dashscope 可选模型：
+#   qwen-audio-3.0-asr-flash-filetrans   推荐，最长12小时，时间戳固定开启
+model = "qwen-audio-3.0-asr-flash-filetrans"
+language_hints = ["zh", "en"]
+diarization_enabled = false
+disfluency_removal = false
+chunk_duration = 1800          # 分段时长（秒，默认 30 分钟）
+max_workers = 2                # 并行上传和提交任务数（降低以避免超时）
+overlap = 2                    # 第一版不做重叠
+poll_interval = 5              # 轮询间隔（秒）
+poll_timeout = 3600            # 单段最大等待时间（秒）
+vocabulary_id = ""             # 可选热词表 ID（留空不使用）
+keep_temp_files = true         # true 时保留切片文件到 output/任务名/temp/，方便调试
+
+
+[asr.oss]
+bucket = "framelearn-audio"   # 阿里云 OSS Bucket 名称（dashscope 时必填）
+region = "oss-cn-beijing"     # OSS 节点
+prefix = "framelearn-audio/"  # 上传路径前缀
+url_ttl = 86400                # 签名 URL 有效期（秒，默认 24 小时）
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 六、字幕清洗配置 [subtitle]
+# ═══════════════════════════════════════════════════════════════════
+
+[subtitle]
+# 是否去除括号内容（[音乐]、（掌声）等）
+remove_brackets = true
+
+# 是否合并重复行
+merge_duplicates = true
+
+# 时间戳对齐误差容忍（秒）
+timestamp_tolerance = 0.5
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 七、视频处理配置 [video]
 # ═══════════════════════════════════════════════════════════════════
 
 [video]
@@ -53,47 +121,7 @@ keep_temp_files = true
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 字幕清洗配置
-# ═══════════════════════════════════════════════════════════════════
-
-[subtitle]
-# 是否去除括号内容（[音乐]、（掌声）等）
-remove_brackets = true
-
-# 是否合并重复行
-merge_duplicates = true
-
-# 时间戳对齐误差容忍（秒）
-timestamp_tolerance = 0.5
-
-
-# ═══════════════════════════════════════════════════════════════════
-# 个性化生成配置
-# ═══════════════════════════════════════════════════════════════════
-
-[style]
-# 语言风格：relaxed（轻松）/ balanced（平衡）/ professional（专业）
-tone = "balanced"
-
-# 详略程度：brief（简略）/ standard（标准）/ detailed（详实）
-detail_level = "detailed"
-
-[doc_generation]
-# 文档生成模式：
-#   visual_script - 顺序图文讲稿（保留讲解顺序，不重排）
-#   notes         - 课堂笔记（bullet points）
-#   textbook      - 正式教材（知识点重排）
-mode = "visual_script"
-
-# 分段时长（秒），用于长视频分段生成
-segment_duration = 90
-
-# 每段最多关键帧数
-max_keyframes_per_segment = 10
-
-
-# ═══════════════════════════════════════════════════════════════════
-# Agent 配置（LLM 决策模式，默认关闭以控制成本）
+# 八、Agent 决策配置（LLM 决策模式，默认关闭以控制成本）[agent]
 # ═══════════════════════════════════════════════════════════════════
 
 [agent]
@@ -108,30 +136,18 @@ upgrade_model = ""   # 留空则不升级，例如 "qwen3-vl-32b-instruct"
 
 
 # ═══════════════════════════════════════════════════════════════════
-# ASR 模型（音频转文字）
+# 九、文档生成配置 [doc_generation]
 # ═══════════════════════════════════════════════════════════════════
 
-[asr]
-# 可选：siliconflow（无时间戳，简单）/ dashscope（词级时间戳，推荐长视频）
-provider = "dashscope"
-# dashscope 可选模型：
-#   qwen-audio-3.0-asr-flash-filetrans   推荐，最长12小时，时间戳固定开启
-model = "qwen-audio-3.0-asr-flash-filetrans"
-language_hints = ["zh", "en"]
-diarization_enabled = false
-disfluency_removal = false
-chunk_duration = 1800          # 分段时长（秒，默认 30 分钟）
-max_workers = 2                # 并行上传和提交任务数（降低以避免超时）
-overlap = 2                    # 第一版不做重叠
-poll_interval = 5              # 轮询间隔（秒）
-poll_timeout = 3600            # 单段最大等待时间（秒）
-vocabulary_id = ""             # 可选热词表 ID（留空不使用）
-keep_temp_files = true         # true 时保留切片文件到 output/任务名/temp/，方便调试
+[doc_generation]
+# 文档生成模式：
+#   visual_script - 顺序图文讲稿（保留讲解顺序，不重排）
+#   notes         - 课堂笔记（bullet points）
+#   textbook      - 正式教材（知识点重排）
+mode = "visual_script"
 
+# 分段时长（秒），用于长视频分段生成
+segment_duration = 90
 
-
-[asr.oss]
-bucket = "framelearn-audio"   # 阿里云 OSS Bucket 名称（dashscope 时必填）
-region = "oss-cn-beijing"     # OSS 节点
-prefix = "framelearn-audio/"  # 上传路径前缀
-url_ttl = 86400                # 签名 URL 有效期（秒，默认 24 小时）
+# 每段最多关键帧数
+max_keyframes_per_segment = 10
