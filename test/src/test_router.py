@@ -143,22 +143,14 @@ class TestAskCommand:
         with pytest.raises(ValueError, match="缺少问题内容"):
             router.execute("ask")
 
-    def test_question_calls_runtime(self):
-        router, mock_runtime = make_router()
+    @patch("framelearn.router.call_text_llm")
+    def test_question_calls_api(self, mock_call_text_llm):
+        mock_call_text_llm.return_value = "Answer from API"
+        router = make_router()
         router.execute("ask 什么是装饰器")
-        mock_runtime.run_turn.assert_called_once()
-        call_args = mock_runtime.run_turn.call_args
+        mock_call_text_llm.assert_called_once()
+        call_args = mock_call_text_llm.call_args
         assert "装饰器" in call_args[0][0]
-
-    def test_runtime_error_prints_error(self, capsys):
-        router, mock_runtime = make_router()
-        mock_result = MagicMock()
-        mock_result.error = "app-server failed"
-        mock_result.final_text = None
-        mock_runtime.run_turn.return_value = mock_result
-        router.execute("ask 问题")
-        out = capsys.readouterr().out
-        assert "app-server failed" in out
 
 
 # ------------------------------------------------------------------
@@ -167,7 +159,7 @@ class TestAskCommand:
 
 class TestValidation:
     def setup_method(self):
-        self.router, _ = make_router()
+        self.router = make_router()
 
     def test_youtube_url_valid(self):
         assert self.router._is_valid_video_url("https://youtube.com/watch?v=xxx") is True
