@@ -21,7 +21,7 @@
               ↓              ↓              ↓
          subtitle.srt   frame_<HH>.jpg    ┌──────────────┐
                                           │ SRTChunker   │
-                                          │  (按 30 分钟) │
+                                          │ (按 30 分钟) │
                                           └──────┬───────┘
                                                  ↓
                                           ┌──────────────┐
@@ -29,28 +29,44 @@
                                           │ (并行 N 段)  │
                                           └──────┬───────┘
                                                  ↓
-                                          ┌──────────────┐
-                                          │ VisionStage1 │
-                                          │ (纯文本，N 段)│
-                                          │ 输出 md + ts │
-                                          └──────┬───────┘
+                                          大 cleaned SRT
                                                  ↓
-                                          ┌──────────────┐
-                                          │ FFmpeg.extract│
-                                          │  截 ≤50 帧   │
-                                          └──────┬───────┘
+                                          ┌──────────────────┐
+                                          │ HeuristicFrame   │
+                                          │ Extractor        │
+                                          │ (ffmpeg + pHash) │
+                                          └──────┬───────────┘
                                                  ↓
-                                          ┌──────────────┐
-                                          │ VisionStage2 │
-                                          │ (看图，N 段) │
-                                          │ 输出 keep    │
-                                          └──────┬───────┘
+                                          候选帧集（全局）
                                                  ↓
-                                          ┌──────────────┐
-                                          │ MDAssembler  │
-                                          │ output_a.md  │
-                                          │ output_b.md  │
-                                          └──────────────┘
+                                          ┌──────────────────┐
+                                          │ FrameDistributor │
+                                          │ 按 chunk 边界    │
+                                          └──────┬───────────┘
+                                                 ↓
+                                       For each chunk:
+                                  ┌─────────────────────┐
+                                  │ VisionStage1        │
+                                  │ (文本+图，N 段)     │
+                                  │ 输出 md + ts        │
+                                  └──────────┬──────────┘
+                                             ↓
+                                  ┌─────────────────────┐
+                                  │ 检查 + ffmpeg 新截  │
+                                  │ (needs_extract)     │
+                                  └──────────┬──────────┘
+                                             ↓
+                                  ┌─────────────────────┐
+                                  │ VisionStage2        │
+                                  │ (看图，N 段)        │
+                                  │ 输出 keep/discard   │
+                                  └──────────┬──────────┘
+                                             ↓
+                                  ┌─────────────────────┐
+                                  │ MDAssembler         │
+                                  │ srt_picture.md      │
+                                  │ blog.md             │
+                                  └─────────────────────┘
 ```
 
 ---
@@ -125,80 +141,166 @@ class TextCleaner:
 
 ---
 
-### 3. VisionStage1（新增）
+### 3. HeuristicFrameExtractor（新增）
 
-**文件**：`framelearn/pipeline/vision_stage1.py`
+**文件**：`framelearn/pipeline/heuristic_frame_extractor.py`
 
-**职责**：纯文本视觉模型调用，输出博客 markdown 和候选时间戳。
+**职责**：对完整视频做启发式截帧（不调 LLM），产出覆盖完整时长的候选帧集。
 
 **接口**：
 ```python
 @dataclass
-class VisionStage1Output:
-    blog_markdown: str                # 这一段的博客式 markdown
-    candidate_timestamps: list[CandidateTimestamp]
+class CandidateFrame:
+    path: str                 # 帧文件路径
+    timestamp_sec: float      # 视频时间戳
+    source: str = "heuristic" # 来源标记
+
+class HeuristicFrameExtractor:
+    def __init__(
+        self,
+        scene_threshold: float = 0.4,
+        similarity_threshold: float = 0.95,
+    ):
+        ...
+
+    def extract(self, video_path: str, output_dir: Path) -> list[CandidateFrame]:
+        """调用 FFmpeg 场景检测 + pHash 去重，返回候选帧列表"""
+```
+
+**实现**：
+1. 调用现有 `FFmpegHelper.extract_keyframes(video, output_dir, scene_threshold=0.4)`
+2. 调用现有 `KeyframeDeduplicator.deduplicate(frames, similarity_threshold=0.95)`
+3. 包装成 `list[CandidateFrame]`
+
+**关键**：不调 LLM，纯本地计算。可缓存（同一视频第二次跳过）。
+
+---
+
+### 4. FrameDistributor（新增）
+
+**文件**：`framelearn/pipeline/frame_distributor.py`
+
+**职责**：把全局候选帧按 timestamp_sec 分配到对应 chunk。
+
+**接口**：
+```python
+class FrameDistributor:
+    def distribute(
+        self,
+        chunks: list[SRTChunk],
+        frames: list[CandidateFrame],
+        max_per_chunk: int = 50,
+    ) -> dict[int, list[CandidateFrame]]:
+        """返回 {chunk_index: 该 chunk 的候选帧列表}"""
+```
+
+**算法**：
+1. 按 `chunk.start_sec <= frame.timestamp_sec < chunk.end_sec` 分配
+2. 单 chunk 超过 `max_per_chunk` 时均匀采样保留
+3. 边界帧（恰在 chunk 边界）：归到前一 chunk（避免重复）
+
+---
+
+### 5. VisionStage1（新增，文本+图）
+
+**文件**：`framelearn/pipeline/vision_stage1.py`
+
+**职责**：视觉模型一次调用，输入 cleaned SRT + 启发式候选帧，输出博客 markdown + 增删改时间戳决策。
+
+**接口**：
+```python
+@dataclass
+class SelectedTimestamp:
+    srt_id: int
+    timestamp: float              # 调整后的时间戳（增/改后）
+    needs_extract: bool           # True = 需要 ffmpeg 截
+    source_frame_path: str | None # 启发式帧路径（needs_extract=False 时）
+    reason: str
 
 @dataclass
-class CandidateTimestamp:
-    srt_id: int                       # 插在哪个 SRT 段之后
-    timestamp: float                  # 视频时间戳（秒）
-    reason: str                       # 为什么这里要截图
+class VisionStage1Output:
+    blog_markdown: str                # 该段的博客式 markdown
+    selected_timestamps: list[SelectedTimestamp]  # ≤ 50 个
 
 class VisionStage1:
-    async def process(self, chunk: SRTChunk) -> VisionStage1Output:
-        """纯文本调用，返回博客 markdown + 候选时间戳"""
+    async def process(
+        self,
+        chunk: SRTChunk,
+        frames_in_chunk: list[CandidateFrame],
+    ) -> VisionStage1Output:
+        """输入 cleaned SRT + 启发式帧，输出 blog_markdown + selected_timestamps"""
 ```
 
-**Prompt 模板**（关键约束）：
+**Prompt 模板**（关键）：
 ```
-你是视频字幕整理助手。给你一段清洗过的 SRT，请做两件事：
+你是视频字幕整理助手。给你一段清洗过的 SRT 和该段内的启发式截帧列表。
 
-1. 生成博客式 markdown 段落（每条 SRT 合并成连贯叙述，去掉时间戳和序号）
-2. 选出 ≤50 个候选时间戳，建议插入图片的位置
+请做三件事：
+1. 生成博客式 markdown 段落（合并 SRT 段为连贯叙述，去掉时间戳和序号）
+2. 从启发式帧中**保留**合适的帧
+3. **新增**启发式未覆盖的时间戳（如果老师提到屏幕上的图但启发式没截到）
+4. **调整**不精确的时间戳
 
-候选时间戳选择规则（硬下限）：
+候选时间戳选择规则：
 - 出现"看"、"如图"、"图中"、"屏幕"、"代码"、"演示"、"PPT"等关键词的段必选
-- 在此之上自由发挥：识别需要视觉辅助讲解的概念
+- 启发式帧列表中包含 path + timestamp_sec
+- 你可以选择调整 timestamp（±2 秒）
+- 你可以新增 timestamp（如果启发式没覆盖到）
 
 输入：
 <subtitle>
 {chunk_text}
 </subtitle>
 
+启发式帧：
+{frames_json}
+
 输出 JSON：
 {
   "blog_markdown": "## ...\\n\\n这是博客式段落...",
-  "candidates": [{"srt_id": 42, "timestamp": 90.5, "reason": "代码示例"}, ...]
+  "selected_timestamps": [
+    {"srt_id": 42, "timestamp": 90.5, "needs_extract": false, "source_frame_path": "frame_xxx.jpg", "reason": "保留：代码示例"},
+    {"srt_id": 50, "timestamp": 100.2, "needs_extract": true, "source_frame_path": null, "reason": "新增：屏幕图"}
+  ]
 }
 ```
 
+**降级**：失败重试 2 次，第 3 次 blog_markdown = cleaned SRT 拼接，selected_timestamps = 所有启发式帧（needs_extract=false）。
+
 ---
 
-### 4. FFmpeg 截帧（复用）
+### 6. FFmpeg 新截帧（运行时逻辑）
 
-**文件**：`framelearn/pipeline/ffmpeg_helper.py`（已有 `capture_single_frame`）
+**文件**：`framelearn/pipeline/chunked_doc_generator.py` 内私有函数
+
+**职责**：处理 Stage1 输出的 `needs_extract=true` 项。
 
 ```python
-# 直接用现有方法
-FFmpegHelper.capture_single_frame(video_path, timestamp, output_path)
+def extract_new_frames(
+    selected: list[SelectedTimestamp],
+    video_path: str,
+    chunk_index: int,
+    output_dir: Path,
+) -> list[CandidateFrame]:
+    """只截 needs_extract=True 的项，输出 CandidateFrame(source='stage1')"""
 ```
 
-每段最多截 50 帧，输出到 `temp/frames/chunk_<i>/frame_<j>.jpg`。
+输出路径：`temp/frames/chunk_<i>/extra_frame_<j>.jpg`
 
 ---
 
-### 5. VisionStage2（新增）
+### 7. VisionStage2（新增，看图）
 
 **文件**：`framelearn/pipeline/vision_stage2.py`
 
-**职责**：看图阶段，决定哪些候选帧保留、哪些丢弃。
+**职责**：看图阶段，对 Stage1 选中的所有帧（启发式 + 新截）做最终 keep/discard。
 
 **接口**：
 ```python
 @dataclass
 class FrameDecision:
-    frame_path: str
     srt_id: int                       # 关联的 SRT 段 id
+    frame_path: str                   # 帧路径
     timestamp: float
     keep: bool
     reason: str
@@ -207,10 +309,9 @@ class VisionStage2:
     async def process(
         self,
         chunk: SRTChunk,
-        candidates: list[CandidateTimestamp],
-        frames_dir: Path,
+        all_frames: list[CandidateFrame],  # 启发式 + 新截
     ) -> list[FrameDecision]:
-        """看图后输出每帧的 keep/discard 决策"""
+        """看图后输出每帧的最终 keep/discard 决策"""
 ```
 
 **输入构造**：
@@ -218,8 +319,8 @@ class VisionStage2:
 {
   "chunk_text": "<subtitle>...</subtitle>",
   "frames": [
-    {"path": "frame_0.jpg", "srt_id": 42, "timestamp": 90.5, "reason": "代码示例"},
-    {"path": "frame_1.jpg", ...},
+    {"path": "frame_0.jpg", "srt_id": 42, "timestamp": 90.5, "source": "heuristic"},
+    {"path": "extra_frame_0.jpg", "srt_id": 50, "timestamp": 100.2, "source": "stage1"},
     ...
   ]
 }
@@ -237,14 +338,16 @@ class VisionStage2:
 {
   "decisions": [
     {"frame": "frame_0.jpg", "keep": true, "reason": "代码示例"},
-    {"frame": "frame_1.jpg", "keep": false, "reason": "模糊"}
+    {"frame": "extra_frame_0.jpg", "keep": false, "reason": "模糊"}
   ]
 }
 ```
 
+**降级**：失败重试 2 次，第 3 次全部 keep=true。
+
 ---
 
-### 6. MDAssembler（新增）
+### 8. MDAssembler（新增）
 
 **文件**：`framelearn/pipeline/md_assembler.py`
 
@@ -253,22 +356,25 @@ class VisionStage2:
 **接口**：
 ```python
 class MDAssembler:
-    def assemble_a(
+    def __init__(self, srt_filename: str = "srt_picture.md", blog_filename: str = "blog.md"):
+        ...
+
+    def assemble_srt(
         self,
         cleaned_srt: list[TranscriptSegment],
         all_decisions: list[FrameDecision],
     ) -> str:
-        """Markdown A：SRT 原结构 + 图片插入"""
+        """Markdown-SRT：SRT 原结构 + 图片插入"""
 
-    def assemble_b(
+    def assemble_blog(
         self,
         all_blog_markdowns: list[str],   # 各段博客 markdown
         all_decisions: list[FrameDecision],
     ) -> str:
-        """Markdown B：博客 markdown 拼接 + 图片插入"""
+        """Markdown-Blog：博客 markdown 拼接 + 图片插入"""
 ```
 
-**Markdown A 格式**（示例）：
+**Markdown-SRT 格式**（示例）：
 ```markdown
 # 视频讲义
 
@@ -286,7 +392,7 @@ class MDAssembler:
 （图片按 decision.srt_id 插在对应 SRT 段之后）
 ```
 
-**Markdown B 格式**（示例）：
+**Markdown-Blog 格式**（示例）：
 ```markdown
 # 视频讲义（博客版）
 
@@ -299,22 +405,22 @@ class MDAssembler:
 
 ---
 
-### 7. VideoPipeline（修改）
+### 9. VideoPipeline（修改）
 
 **文件**：`framelearn/pipeline/video_pipeline.py`
 
 **改动**：
 - 移除对 `AgentKeyframeSelector` 和 `DocumentGenerator` 的调用
-- 改用 `ChunkedDocGenerator`（新模块，组织上面 1-6）
-- 输出从单 `markdown_path` 改为 `markdown_a_path` + `markdown_b_path`
+- 改用 `ChunkedDocGenerator`（新模块，组织上面 1-8）
+- 输出从单 `markdown_path` 改为 `srt_picture_path` + `blog_path`
 
 **新接口**：
 ```python
 @dataclass
 class PipelineResult:
     output_dir: Path
-    markdown_a_path: Path       # 新：SRT 式 + 插图
-    markdown_b_path: Path       # 新：博客式 + 插图
+    srt_picture_path: Path       # 新：SRT 式 + 插图
+    blog_path: Path              # 新：博客式 + 插图
     subtitle_text: str
     keyframes: list[Path]
     error: Optional[str] = None
@@ -336,8 +442,11 @@ class PipelineResult:
 manifest 文件：`output_dir/manifest.json`，SHA256 哈希：
 - 视频文件
 - SRT 内容
+- **启发式截帧结果摘要**（候选帧列表的 SHA256）— 视频不变 + 场景参数不变 → 复用
 - `[chunking]` 配置快照
 - `[text_clean]` 配置快照
+- `[doc_gen]` 配置快照
+- `[heuristic]` 配置快照
 - `[vision]` 配置快照
 
 任一变更 → 全部重跑。
@@ -350,10 +459,11 @@ manifest 文件：`output_dir/manifest.json`，SHA256 哈希：
 
 | 失败点 | 处理 |
 |--------|------|
+| 启发式截帧失败 | 重试 2 次；失败则放弃启发式阶段，pipeline 仍可继续（只是 Stage1 无图输入） |
 | 文本清洗某段失败 | 重试 2 次（指数退避），第 3 次降级：保留原文 |
-| 视觉 Stage1 某段失败 | 重试 2 次，第 3 次降级：该段博客 markdown 用 cleaned SRT 替代，无候选时间戳 |
+| 视觉 Stage1 某段失败 | 重试 2 次，第 3 次降级：blog_markdown = cleaned SRT 拼接，selected_timestamps = 该 chunk 全部启发式帧 |
+| ffmpeg 新截帧失败 | 跳过该时间戳，继续 |
 | 视觉 Stage2 某段失败 | 重试 2 次，第 3 次降级：全部 keep=true |
-| ffmpeg 截帧失败 | 跳过该时间戳，继续 |
 | 单段全部失败 | 该段在两个 markdown 中都缺失，记录 warning |
 
 ---
@@ -362,7 +472,7 @@ manifest 文件：`output_dir/manifest.json`，SHA256 哈希：
 
 - 旧 `agent_keyframe_selector.py` 和 `doc_generator.py` 保留代码，但 `VideoPipeline` 不再调用
 - 旧 `notes.md` / `visual_script.md` 不再生成
-- 如果用户配置 `[doc_gen] legacy_modes = true`，可以保留旧输出（可选）
+- `keyframe_dedup.py` 保留（被 HeuristicFrameExtractor 复用）
 
 ---
 
@@ -370,8 +480,10 @@ manifest 文件：`output_dir/manifest.json`，SHA256 哈希：
 
 - `SRTChunker` 切段边界（30 分钟整点、剩余段）
 - `TextCleaner` 保留 id 和时间戳，只改 text
-- `VisionStage1` 输出 JSON 格式正确
-- `VisionStage2` 处理 50 张图不超 context
+- `HeuristicFrameExtractor` 复用现有 ffmpeg + pHash
+- `FrameDistributor` 边界帧正确归位（不重复不丢失）
+- `VisionStage1` 输入含图，输出 JSON 含 `needs_extract` 字段
+- `VisionStage2` 处理所有选中帧（启发式 + 新截）不超 context
 - `MDAssembler` 图片插入位置正确（按 srt_id）
-- 端到端：30 分钟视频完整跑通，输出两个 markdown
+- 端到端：30 分钟视频完整跑通，输出 srt_picture.md + blog.md
 - 错误降级路径：单段失败不影响其他段

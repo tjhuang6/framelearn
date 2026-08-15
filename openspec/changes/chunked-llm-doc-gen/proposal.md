@@ -21,7 +21,7 @@
 
 ## 目标
 
-用 **分块批量** 替代逐段循环，把 30 分钟视频的 LLM 调用从 ~270 降到 **3**（文本清洗 1 + 视觉纯文本 1 + 视觉看图 1）。
+用 **分块批量** 替代逐段循环，把 30 分钟视频的 LLM 调用从 ~270 降到 **3**（文本清洗 1 + 视觉文本+图 1 + 视觉看图 1）。
 
 最终输出 **两个 Markdown**：
 
@@ -36,21 +36,23 @@
 [文本 LLM × N] 每段独立清洗口水词 → cleaned chunks（可并行）
    ↓ 拼接
 大 cleaned SRT
+   ↓ 启发式截帧 再按照原计划去重
    ↓ 按 30 分钟切段（同样边界，便于协调）
 For each chunk:
-   [视觉 LLM Call A：纯文本]
-     输入：cleaned SRT chunk
+   [视觉 LLM Call A：纯文本+图]
+     输入：cleaned SRT +picture chunk
      输出：
        ├─ 博客 markdown（这一段，无图）
-       └─ 候选时间戳（最多 50 个）[{srt_id, timestamp, reason}]
+       └─ 选择合适的时间戳（最多 50 个）[{srt_id, timestamp, reason}]
+   检查需不需要截帧（指给出的时间戳有没有没截的）
    ffmpeg 截最多 50 个时间戳 → frames/
    [视觉 LLM Call B：看图]
      输入：cleaned SRT chunk + 最多 50 张帧
      输出：每张 keep / discard
    ↓
 全部 chunk 完成（程序化拼装）：
-   ├─ 各段博客 markdown 拼接 → Markdown B（博客式）
-   └─ 按 srt_id 把保留图插入大 cleaned SRT → Markdown A（SRT 式）
+   ├─ 各段博客 markdown 拼接 → Markdown Blog（博客式）
+   └─ 按 srt_id 把保留图插入大 cleaned SRT → Markdown Srt（SRT 式）
 ```
 
 ## 关键约束
@@ -79,13 +81,13 @@ segment_minutes = 30           # 每段视频时长
 max_images_per_chunk = 50      # 每批评估图片数
 
 [doc_gen]
-output_a_filename = "output_a.md"   # SRT 式 + 插图
-output_b_filename = "output_b.md"   # 博客式 + 插图
+srt_filename = "srt_picture.md"   # SRT 式 + 插图
+blog_filename = "blog.md"   # 博客式 + 插图
 ```
 
 ## 不做的事
 
-- 不保留 `notes.md` / `visual_script.md` 旧双模式 — 只生成新的 `output_a.md` + `output_b.md`
+- 不保留 `notes.md` / `visual_script.md` 旧双模式 — 只生成新的 `srt_picture.md` + `blog.md`
 - 不引入 LiteLLM / 官方 SDK — 继续用现有 `provider_adapter.py`，把同步实现换成异步
 - 不改 ASR、不改 FFmpeg 场景抽帧 — 只改 LLM 调用方式
 - 不实现流式输出 — 离线批处理场景不需要
@@ -94,7 +96,7 @@ output_b_filename = "output_b.md"   # 博客式 + 插图
 
 | 风险 | 对策 |
 |------|------|
-| 单次大调用失败影响更多输出 | 段级重试（最多 2 次）；失败则降级到程序化生成（保留 SRT 原样 + 不插图） |
+| 单次大调用失败影响更多输出 | 段级重试（最多 3 次）；失败则降级到程序化生成（保留 SRT 原样 + 不插图） |
 | 视觉模型选时间戳不准确 | prompt 给硬关键词下限（"看"/"如图"/"代码"等），模型补上限 |
 | 256K context 装不下极长视频 | 段大小可配置，>30 分钟自动切多段 |
 | 文本 LLM 改写过猛 | prompt 加约束："只删口水词，不重组句序，不删内容词" |
