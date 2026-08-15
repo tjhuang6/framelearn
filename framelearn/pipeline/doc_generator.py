@@ -448,8 +448,19 @@ class DocumentGenerator:
         mode: DocMode,
         model_override: str | None = None,
     ) -> str:
-        """Generate via provider_adapter (Vision API)."""
-        from framelearn.provider_adapter import call_llm, ProviderConfig, PROVIDERS
+        """Generate markdown via the Vision API.
+
+        Document generation reads images + writes prose that references
+        specific frames, so it must use a vision-capable model. The
+        provider / model come from settings.toml [vision] (siliconflow
+        Qwen3-VL by default); call_llm dispatches based on provider type
+        and siliconflow's type is "openai" → chat/completions.
+        """
+        from framelearn.provider_adapter import (
+            PROVIDERS,
+            ProviderConfig,
+            call_llm,
+        )
 
         # Build text prompt
         text_prompt = self._build_prompt(keyframes, subtitle, mode)
@@ -461,9 +472,13 @@ class DocumentGenerator:
                 continue
             image_paths.append(str(frame_path))
 
-        # Build config from settings.toml (overrides env vars)
-        provider_key = config_get("vision.vision_provider", "siliconflow")
-        model = model_override or config_get("vision.vision_model", "Qwen/Qwen2.5-VL-72B-Instruct")
+        # Build config from settings.toml [vision]
+        provider_key = config_get("vision.vision_provider")
+        if not provider_key:
+            raise ValueError(
+                "vision.vision_provider not set in settings.toml — "
+                "document generation requires a vision model."
+            )
         provider_def = PROVIDERS.get(provider_key)
         if not provider_def:
             raise ValueError(f"Unknown vision_provider: '{provider_key}'")
@@ -471,10 +486,17 @@ class DocumentGenerator:
         import os
         if provider_key == "siliconflow":
             api_key = os.getenv("SILICONFLOW_API_KEY", "")
-            base_url = os.getenv("SILICONFLOW_BASE_URL", provider_def["base_url"])
+            base_url = os.getenv(
+                "SILICONFLOW_BASE_URL", provider_def["base_url"]
+            )
         else:
             api_key = os.getenv("VISION_API_KEY", "")
             base_url = os.getenv("VISION_BASE_URL", provider_def["base_url"])
+
+        model = model_override or config_get(
+            "vision.vision_model",
+            "Qwen/Qwen3-VL-8B-Instruct",
+        )
 
         config = ProviderConfig(
             provider=provider_key,

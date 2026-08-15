@@ -349,10 +349,13 @@ class TestCallLlmWithTools:
     def _make_config(self, provider: str = "siliconflow") -> "ProviderConfig":
         from framelearn.provider_adapter import ProviderConfig, PROVIDERS
         p = PROVIDERS[provider]
+        # default_model was removed from PROVIDERS — test passes a fixed
+        # value since these tests only exercise the request-builder shape,
+        # not which model is actually configured.
         return ProviderConfig(
             provider=provider,
             api_key="sk-test",
-            model=p["default_model"],
+            model="test-model",
             base_url=p["base_url"],
         )
 
@@ -389,7 +392,7 @@ class TestCallLlmWithTools:
         config = ProviderConfig(
             provider="gemini",
             api_key="key",
-            model=PROVIDERS["gemini"]["default_model"],
+            model="test-model",
             base_url=PROVIDERS["gemini"]["base_url"],
         )
         with pytest.raises(NotImplementedError):
@@ -401,7 +404,7 @@ class TestCallLlmWithTools:
         config = ProviderConfig(
             provider="claude",
             api_key="key",
-            model=PROVIDERS["claude"]["default_model"],
+            model="test-model",
             base_url=PROVIDERS["claude"]["base_url"],
         )
         with pytest.raises(NotImplementedError):

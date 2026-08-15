@@ -10,6 +10,13 @@
 # 统一使用 API 模式（直接调用 LLM API）
 text_mode = "api"
 
+# 文本模型 provider（从 PROVIDERS 注册表里选）
+provider = "deepseek"
+
+# 文本模型 ID（必须）
+# deepseek-v4-flash 是推理模型，适合命令解析这类短分类任务
+model = "deepseek-v4-flash"
+
 
 # ═══════════════════════════════════════════════════════════════════
 # 二、视觉（Vision）模式配置 [vision]
@@ -22,7 +29,7 @@ vision_mode = "api"
 
 # Vision API 配置
 vision_provider = "siliconflow"
-vision_model = "Qwen/Qwen3.6-35B-A3B"
+vision_model = "Qwen/Qwen3-VL-8B-Instruct"
 
 # Vision Agent 工具调用循环最大重试次数（capture_frame 的上限）
 vision_agent_max_retries = 5
@@ -105,7 +112,11 @@ timestamp_tolerance = 0.5
 output_dir = "./output"
 
 # 场景检测阈值（0.0-1.0，越小越敏感，抽帧越多）
-scene_threshold = 0.3
+scene_threshold = 0.4
+
+# 关键帧去重阈值（0.0-1.0，pHash 相似度 > 此值视为重复帧）
+# 0.95 = 像素差异很小的图才去重；0.7 = 同一张幻灯片不同字号的也合并
+similarity_threshold = 0.95
 
 # 保底抽帧间隔（秒，即使无场景切换也定时抽一帧）
 fallback_interval = 30

@@ -49,6 +49,7 @@ class ConfigSnapshot:
     """Configuration snapshot for cache key validation."""
     # Video processing
     scene_threshold: float
+    similarity_threshold: float
     fallback_interval: int
     max_keyframes: int
     
@@ -71,7 +72,8 @@ class ConfigSnapshot:
     def from_config(cls, config_get_fn, mode: str, asr_provider: str = "unknown", asr_model: str = "unknown") -> "ConfigSnapshot":
         """Extract relevant config keys."""
         return cls(
-            scene_threshold=config_get_fn("video.scene_threshold", 0.3),
+            scene_threshold=config_get_fn("video.scene_threshold", 0.4),
+            similarity_threshold=config_get_fn("video.similarity_threshold", 0.95),
             fallback_interval=config_get_fn("video.fallback_interval", 30),
             max_keyframes=config_get_fn("video.max_keyframes", 100),
             doc_mode=mode,

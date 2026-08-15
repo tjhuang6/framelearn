@@ -8,7 +8,6 @@ from framelearn.command_parser import CommandParser
 from framelearn.errors import FrameLearnError
 from framelearn.router import CommandRouter
 
-
 _BANNER = """
 FrameLearn — AI 编程教程学习助手
 输入你的问题或需求，直接回车发送。
@@ -28,6 +27,7 @@ def _parse_flags(args: list[str]) -> tuple[str, dict]:
 
     Supported flags:
         --subtitle <path>   Path to existing subtitle file (skip ASR)
+        --debug             Print full LLM prompts/responses for the parser
     """
     flags: dict = {}
     remaining: list[str] = []
@@ -36,13 +36,18 @@ def _parse_flags(args: list[str]) -> tuple[str, dict]:
         if args[i] == "--subtitle" and i + 1 < len(args):
             flags["subtitle"] = args[i + 1]
             i += 2
+        elif args[i] == "--debug":
+            flags["debug"] = True
+            i += 1
         else:
             remaining.append(args[i])
             i += 1
     return " ".join(remaining), flags
 
 
-def _run_once(user_input: str, parser: CommandParser, router: CommandRouter, flags: dict = {}) -> int:
+def _run_once(
+    user_input: str, parser: CommandParser, router: CommandRouter, flags: dict = {}
+) -> int:
     """Parse and execute a single input. Returns exit code.
 
     Any domain failure (usage error via ValueError, or a business/feature
@@ -51,7 +56,7 @@ def _run_once(user_input: str, parser: CommandParser, router: CommandRouter, fla
     """
     try:
         command = parser.parse(user_input)
-        if not parser._is_traditional_command(user_input):
+        if flags.get("debug") or not parser._is_traditional_command(user_input):
             print(f"[→ {command}]")
     except ValueError as e:
         print(f"❌ {e}")
@@ -117,7 +122,7 @@ def main():
     # Extract --flag options before passing to parser
     user_input, flags = _parse_flags(sys.argv[1:])
 
-    parser = CommandParser()
+    parser = CommandParser(debug=bool(flags.get("debug")))
     router = CommandRouter(workspace=workspace)
 
     try:

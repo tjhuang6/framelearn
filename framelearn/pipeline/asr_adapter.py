@@ -32,6 +32,14 @@ class ASRAdapter:
 
     def __init__(self, provider: Optional[str] = None):
         self.provider = provider or config_get("asr.provider", "siliconflow")
+        # Cache the configured model name so callers (VideoPipeline, privacy
+        # tracker) can record it without re-reading settings.
+        if self.provider == "dashscope":
+            self.model = config_get(
+                "asr.model", "qwen-audio-3.0-asr-flash-filetrans"
+            )
+        else:
+            self.model = config_get("asr.model", "FunAudioLLM/SenseVoiceSmall")
 
     def transcribe(self, audio_path: str, max_retries: int = 3, output_dir: Optional[Path] = None) -> TranscriptResult:
         """Transcribe audio file using configured provider.

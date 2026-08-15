@@ -53,6 +53,15 @@ class CommandRouter:
     def __init__(self, workspace: Optional[str] = None):
         self._workspace = workspace or os.getcwd()
 
+    def close(self):
+        """Release any resources held by the router.
+
+        The router is currently stateless, but the CLI calls this in a
+        finally block so the same call site works if/when we add a
+        persistent client (session db, http connection pool, ...).
+        """
+        return None
+
     def execute(self, command: str, flags: dict = {}) -> int:
         """
         Execute a parsed command.

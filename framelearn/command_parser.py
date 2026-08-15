@@ -1,7 +1,9 @@
 """Natural language command parser for FrameLearn."""
 
 import os
+import time
 
+import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -72,7 +74,22 @@ SYSTEM_PROMPT = """
 
 
 class CommandParser:
-    """Parse natural language input into standard FrameLearn commands."""
+    """Parse natural language input into standard FrameLearn commands.
+
+    Args:
+        debug: When True, prints the full LLM prompt and response so the
+            intent-recognition step is reproducible from the terminal.
+        timeout: Hard cap on a single LLM intent call (seconds). Defaults
+            to 5 — the parser is on the critical path of every CLI invocation
+            and a 30+ second hang would feel like a frozen process.
+        max_retries: Number of retries on transient network errors (timeouts,
+            5xx, connection resets). Defaults to 1.
+    """
+
+    def __init__(self, debug: bool = False, timeout: int = 5, max_retries: int = 1):
+        self.debug = debug
+        self.timeout = timeout
+        self.max_retries = max_retries
 
     def parse(self, user_input: str) -> str:
         """
@@ -115,14 +132,60 @@ class CommandParser:
         )
 
         if provider and key_looks_real:
-            return self._parse_via_provider(text)
+            try:
+                return self._parse_via_provider(text)
+            except (httpx.TimeoutException, httpx.NetworkError) as e:
+                # Provider is configured but unreachable — don't hard-fail
+                # the CLI. Drop to rule-based parsing so the user can still
+                # run their video / type a question.
+                if self.debug:
+                    print(f"[CommandParser] LLM unreachable ({e!r}), falling back to rules")
+                return self._parse_via_rules(text)
 
         return self._parse_via_rules(text)
 
     def _parse_via_provider(self, text: str) -> str:
         from framelearn.provider_adapter import call_text_llm
+
         prompt = f"{SYSTEM_PROMPT}\n\n输入：{text}\n输出："
-        return call_text_llm(prompt, max_tokens=100).strip()
+        if self.debug:
+            print(f"--- LLM prompt ---\n{prompt}\n--- end prompt ---")
+        result = self._call_with_retry(call_text_llm, prompt)
+        if self.debug:
+            print(f"--- LLM response ---\n{result}\n--- end response ---")
+        return result.strip()
+
+    def _call_with_retry(self, fn, prompt: str) -> str:
+        """Call fn(prompt, max_tokens=..., timeout=self.timeout) with up to
+        `self.max_retries` retries on transient network errors.
+
+        Retries only on transient errors (timeouts, connection resets).
+        User errors like a 401 / 400 are surfaced immediately so the user
+        sees the misconfiguration without us silently looping.
+
+        The parser is on the CLI critical path, so max_tokens is kept small
+        (300). Reasoning models like deepseek-v4-flash spend most of their
+        budget on hidden reasoning_content — 100 tokens was too tight and
+        the response came back empty (finish_reason="length"). 300 leaves
+        room for both thinking and the short command output.
+        """
+        last_error: Exception | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                return fn(prompt, max_tokens=300, timeout=self.timeout)
+            except (httpx.TimeoutException, httpx.NetworkError) as e:
+                last_error = e
+                if attempt < self.max_retries:
+                    if self.debug:
+                        print(
+                            f"[CommandParser] retry {attempt + 1}/{self.max_retries} after {type(e).__name__}"
+                        )
+                    time.sleep(0.5)
+                    continue
+        # All retries exhausted — re-raise so the caller can decide
+        # whether to fall back (caller: _parse_with_llm).
+        assert last_error is not None
+        raise last_error
 
     def _parse_via_rules(self, text: str) -> str:
         """Rule-based intent parser — no LLM needed.
@@ -151,7 +214,16 @@ class CommandParser:
             return "error: 缺少视频链接或文件路径"
 
         # explicit video intent but no source
-        video_intent_keywords = ("视频", "video", "youtube", "bilibili", "b站", "教程", "转成文档", "生成教材")
+        video_intent_keywords = (
+            "视频",
+            "video",
+            "youtube",
+            "bilibili",
+            "b站",
+            "教程",
+            "转成文档",
+            "生成教材",
+        )
         if any(kw in lower for kw in video_intent_keywords):
             return "error: 缺少视频链接或文件路径"
 
@@ -161,6 +233,7 @@ class CommandParser:
     @staticmethod
     def _contains_video_source(text: str) -> bool:
         import re
+
         # URL
         if re.search(r"https?://", text):
             return True
@@ -171,6 +244,7 @@ class CommandParser:
     @staticmethod
     def _extract_video_source(text: str) -> str:
         import re
+
         # Extract URL
         m = re.search(r"https?://\S+", text)
         if m:

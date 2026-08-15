@@ -8,11 +8,9 @@ through a unified call_llm() interface. Internally branches on provider type:
 """
 
 import base64
-import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import httpx
 from dotenv import load_dotenv
@@ -25,59 +23,55 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 
 PROVIDERS: dict[str, dict] = {
+    # Per-provider metadata only — model names live in settings.toml,
+    # not in code. base_url is the canonical endpoint (kept here so the
+    # config loader can resolve a default without forcing users to copy
+    # URLs into TOML); override via settings.toml when needed.
     "gemini": {
         "name": "Google Gemini",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/",
-        "default_model": "gemini-2.0-flash",
         "type": "google",
         "reg_url": "https://aistudio.google.com/apikey",
     },
     "deepseek": {
         "name": "DeepSeek",
         "base_url": "https://api.deepseek.com/v1/",
-        "default_model": "deepseek-v4-flash",   # v4-flash: 便宜快速；v4-pro: 最强；r1-0528: 深度推理
-        "type": "openai",
+        "type": "openai",  # 用 chat/completions，不用 Responses API
         "reg_url": "https://platform.deepseek.com/api_keys",
     },
     "openai": {
         "name": "OpenAI",
         "base_url": "https://api.openai.com/v1/",
-        "default_model": "gpt-5.6-luna",   # luna: 最便宜快速；terra: 平衡；sol/gpt-5.6: 旗舰
         "type": "openai",
         "reg_url": "https://platform.openai.com/api-keys",
     },
     "claude": {
         "name": "Claude (Anthropic)",
         "base_url": "https://api.anthropic.com",
-        "default_model": "claude-sonnet-4-20250514",
         "type": "claude",
         "reg_url": "https://console.anthropic.com/settings/keys",
     },
     "openrouter": {
         "name": "OpenRouter",
         "base_url": "https://openrouter.ai/api/v1/",
-        "default_model": "openrouter/auto",
         "type": "openai",
         "reg_url": "https://openrouter.ai/settings/keys",
     },
     "kimi": {
         "name": "Moonshot (Kimi)",
         "base_url": "https://api.moonshot.cn/v1/",
-        "default_model": "moonshot-v1-8k",
         "type": "openai",
         "reg_url": "https://platform.moonshot.cn/console/api-keys",
     },
     "zhipu": {
         "name": "智谱 AI",
         "base_url": "https://open.bigmodel.cn/api/paas/v4/",
-        "default_model": "glm-4-flash",
         "type": "openai",
         "reg_url": "https://open.bigmodel.cn/usercenter/apikeys",
     },
     "siliconflow": {
         "name": "SiliconFlow",
         "base_url": "https://api.siliconflow.cn/v1/",
-        "default_model": "Qwen/Qwen2.5-VL-72B-Instruct",
         "type": "openai",
         "reg_url": "https://siliconflow.cn/",
     },
@@ -88,65 +82,134 @@ PROVIDERS: dict[str, dict] = {
 # Configuration
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ProviderConfig:
     """Runtime provider configuration loaded from .env."""
-    provider: str       # e.g. "deepseek"
+
+    provider: str  # e.g. "deepseek"
     api_key: str
-    model: str          # e.g. "deepseek-chat"
-    base_url: str       # can be overridden for custom endpoints
+    model: str  # e.g. "deepseek-chat"
+    base_url: str  # can be overridden for custom endpoints
+
+
+def _required(key: str, label: str) -> str:
+    """Read a required string from settings.toml; raise if missing/empty."""
+    from framelearn.config import get as config_get
+    value = config_get(key)
+    if not value:
+        raise ValueError(
+            f"Missing required setting '{key}' (label: {label}). "
+            f"Add it to settings.toml."
+        )
+    return str(value)
+
+
+def _resolve_base_url(provider_key: str, toml_key: str, label: str) -> str:
+    """Read base_url from TOML, falling back to PROVIDERS[provider].base_url.
+
+    Raises if neither source provides one — we never silently fall back to
+    a guessed endpoint.
+    """
+    from framelearn.config import get as config_get
+    toml_value = config_get(toml_key)
+    if toml_value:
+        return str(toml_value)
+    provider = PROVIDERS.get(provider_key, {})
+    base_url = provider.get("base_url", "")
+    if not base_url:
+        raise ValueError(
+            f"Missing required setting '{toml_key}' (label: {label}) and "
+            f"provider '{provider_key}' has no built-in base_url. "
+            f"Add '{toml_key} = \"...\"' to settings.toml."
+        )
+    return base_url
+
+
+def _resolve_api_key(provider_key: str) -> str:
+    """Read the API key for a provider from .env. No defaults — placeholder
+    strings are caught later by call_llm, but a missing key fails fast here."""
+    # Try provider-specific env var first (DEEPSEEK_API_KEY, etc.), then
+    # the legacy generic names.
+    candidates = [
+        f"{provider_key.upper()}_API_KEY",
+        "TEXT_API_KEY",  # legacy
+        "VISION_API_KEY",  # legacy
+    ]
+    for env_name in candidates:
+        value = os.getenv(env_name, "")
+        if value:
+            return value
+    raise ValueError(
+        f"Missing API key for provider '{provider_key}'. "
+        f"Set one of: {', '.join(candidates)} in .env"
+    )
 
 
 def load_text_config() -> ProviderConfig:
-    """Load text model config from environment variables."""
-    provider_key = os.getenv("TEXT_PROVIDER", "deepseek")
-    provider = PROVIDERS.get(provider_key)
-    if not provider:
+    """Load text model config from settings.toml.
+
+    Required TOML keys (raises if missing):
+      [text]
+      provider = "<name>"
+      model    = "<model_id>"
+
+    Optional TOML keys:
+      [text]
+      base_url = "..."   # falls back to PROVIDERS[provider].base_url
+
+    API key is read from .env (DEEPSEEK_API_KEY / TEXT_API_KEY).
+    """
+    provider_key = _required("text.provider", "text LLM provider")
+    if provider_key not in PROVIDERS:
         raise ValueError(
-            f"Unknown TEXT_PROVIDER: '{provider_key}'. "
-            f"Choose from: {', '.join(PROVIDERS)}"
+            f"Unknown text.provider: '{provider_key}'. Choose from: {', '.join(PROVIDERS)}"
         )
     return ProviderConfig(
         provider=provider_key,
-        api_key=os.getenv("TEXT_API_KEY", ""),
-        model=os.getenv("TEXT_MODEL", provider["default_model"]),
-        base_url=os.getenv("TEXT_BASE_URL", provider["base_url"]),
+        api_key=_resolve_api_key(provider_key),
+        model=_required("text.model", "text LLM model"),
+        base_url=_resolve_base_url(provider_key, "text.base_url", "text LLM base URL"),
     )
 
 
 def load_vision_config() -> ProviderConfig:
-    """Load vision model config from environment variables.
+    """Load vision model config from settings.toml.
 
-    For siliconflow provider, SILICONFLOW_API_KEY / SILICONFLOW_BASE_URL
-    are accepted as aliases for VISION_API_KEY / VISION_BASE_URL.
+    Required TOML keys (raises if missing):
+      [vision]
+      vision_provider = "<name>"
+      vision_model    = "<model_id>"
+
+    (Keys keep the ``vision_`` prefix because cache_manifest.py and the
+    agent selectors already read them under that name.)
+
+    Optional TOML keys:
+      [vision]
+      vision_base_url = "..."   # falls back to PROVIDERS[provider].base_url
+
+    API key is read from .env (SILICONFLOW_API_KEY / VISION_API_KEY).
     """
-    provider_key = os.getenv("VISION_PROVIDER", "")
-    if not provider_key:
-      raise ValueError("VISION_PROVIDER is not set. Set it to one of: siliconflow,  ...")
-    provider = PROVIDERS.get(provider_key)
-    if not provider:
+    provider_key = _required("vision.vision_provider", "vision provider")
+    if provider_key not in PROVIDERS:
         raise ValueError(
-            f"Unknown VISION_PROVIDER: '{provider_key}'. "
+            f"Unknown vision.vision_provider: '{provider_key}'. "
             f"Choose from: {', '.join(PROVIDERS)}"
         )
-    # API key: prefer VISION_API_KEY, fall back to provider-specific env var
-    if provider_key == "siliconflow":
-        api_key = os.getenv("VISION_API_KEY") or os.getenv("SILICONFLOW_API_KEY", "")
-        base_url = os.getenv("VISION_BASE_URL") or os.getenv("SILICONFLOW_BASE_URL", provider["base_url"])
-    else:
-        api_key = os.getenv("VISION_API_KEY", "")
-        base_url = os.getenv("VISION_BASE_URL", provider["base_url"])
     return ProviderConfig(
         provider=provider_key,
-        api_key=api_key,
-        model=os.getenv("VISION_MODEL", provider["default_model"]),
-        base_url=base_url,
+        api_key=_resolve_api_key(provider_key),
+        model=_required("vision.vision_model", "vision model"),
+        base_url=_resolve_base_url(
+            provider_key, "vision.vision_base_url", "vision base URL"
+        ),
     )
 
 
 # ---------------------------------------------------------------------------
 # Image encoding helper
 # ---------------------------------------------------------------------------
+
 
 def encode_image(image_path: str) -> tuple[str, str]:
     """
@@ -174,10 +237,11 @@ def encode_image(image_path: str) -> tuple[str, str]:
 # Request builders (one per provider type)
 # ---------------------------------------------------------------------------
 
+
 def _build_openai_request(
     config: ProviderConfig,
     prompt: str,
-    images: Optional[list[str]] = None,
+    images: list[str] | None = None,
     max_tokens: int = 4096,
 ) -> tuple[str, dict, dict]:
     """Build OpenAI-compatible request (DeepSeek, Kimi, etc.)."""
@@ -192,10 +256,12 @@ def _build_openai_request(
         content: list = [{"type": "text", "text": prompt}]
         for img_path in images:
             b64, mime = encode_image(img_path)
-            content.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:{mime};base64,{b64}"},
-            })
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{b64}"},
+                }
+            )
         messages = [{"role": "user", "content": content}]
     else:
         messages = [{"role": "user", "content": prompt}]
@@ -212,14 +278,12 @@ def _build_openai_request(
 def _build_gemini_request(
     config: ProviderConfig,
     prompt: str,
-    images: Optional[list[str]] = None,
+    images: list[str] | None = None,
     max_tokens: int = 4096,
 ) -> tuple[str, dict, dict]:
     """Build Google Gemini REST request."""
     url = (
-        f"{config.base_url.rstrip('/')}/"
-        f"models/{config.model}:generateContent"
-        f"?key={config.api_key}"
+        f"{config.base_url.rstrip('/')}/models/{config.model}:generateContent?key={config.api_key}"
     )
     headers = {"Content-Type": "application/json"}
 
@@ -244,7 +308,7 @@ def _build_gemini_request(
 def _build_claude_request(
     config: ProviderConfig,
     prompt: str,
-    images: Optional[list[str]] = None,
+    images: list[str] | None = None,
     max_tokens: int = 4096,
 ) -> tuple[str, dict, dict]:
     """Build Anthropic Claude request."""
@@ -260,10 +324,12 @@ def _build_claude_request(
         content: list = []
         for img_path in images:
             b64, mime = encode_image(img_path)
-            content.append({
-                "type": "image",
-                "source": {"type": "base64", "media_type": mime, "data": b64},
-            })
+            content.append(
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": mime, "data": b64},
+                }
+            )
         content.append({"type": "text", "text": prompt})
         messages = [{"role": "user", "content": content}]
     else:
@@ -281,6 +347,7 @@ def _build_claude_request(
 # Response parsers (one per provider type)
 # ---------------------------------------------------------------------------
 
+
 def _parse_openai_response(data: dict) -> str:
     return data["choices"][0]["message"]["content"]
 
@@ -293,15 +360,80 @@ def _parse_claude_response(data: dict) -> str:
     return data["content"][0]["text"]
 
 
+def _build_responses_request(
+    config: ProviderConfig,
+    prompt: str,
+    images: list[str] | None = None,
+    max_tokens: int = 65536,
+) -> tuple[str, dict, dict]:
+    """Build OpenAI Responses API request (DeepSeek's Codex-compatible endpoint).
+
+    Endpoint: POST {base_url}/responses
+    Differences from chat/completions:
+      - No /v1 suffix in base_url
+      - Field is `input` (a single string or message list), not `messages`
+      - Field is `max_output_tokens`, not `max_tokens`
+      - Image attachments go in the input as content parts, not message parts
+      - Response exposes a top-level `output_text` field for the assistant text
+    """
+    url = f"{config.base_url.rstrip('/')}/responses"
+    headers = {
+        "Authorization": f"Bearer {config.api_key}",
+        "Content-Type": "application/json",
+    }
+
+    if images:
+        # Responses API input can be a list of content parts
+        content: list = [{"type": "input_text", "text": prompt}]
+        for img_path in images:
+            b64, mime = encode_image(img_path)
+            content.append(
+                {
+                    "type": "input_image",
+                    "image_url": f"data:{mime};base64,{b64}",
+                }
+            )
+        body_input: list | str = content
+    else:
+        body_input = prompt
+
+    body = {
+        "model": config.model,
+        "input": body_input,
+        "max_output_tokens": max_tokens,
+        "temperature": 0.3,
+    }
+    return url, headers, body
+
+
+def _parse_responses_response(data: dict) -> str:
+    """Parse OpenAI Responses API response.
+
+    The API returns both a structured `output` array and a convenience
+    `output_text` field that concatenates all text parts. Prefer
+    `output_text`; fall back to walking `output` if missing.
+    """
+    if "output_text" in data:
+        return data["output_text"]
+    # Fallback: walk the output array
+    for item in data.get("output", []):
+        if item.get("type") == "message":
+            for part in item.get("content", []):
+                if part.get("type") in ("output_text", "text"):
+                    return part.get("text", "")
+    raise ValueError(f"Responses API response missing text: {data}")
+
+
 # ---------------------------------------------------------------------------
 # Unified call interface
 # ---------------------------------------------------------------------------
 
+
 def call_llm(
     prompt: str,
     config: ProviderConfig,
-    images: Optional[list[str]] = None,
-    max_tokens: int = 4096,
+    images: list[str] | None = None,
+    max_tokens: int = 65536,
     timeout: int = 300,
 ) -> str:
     """
@@ -311,7 +443,9 @@ def call_llm(
         prompt: Text prompt
         config: Provider configuration (from load_text_config or load_vision_config)
         images: Optional list of local image file paths (for vision tasks)
-        max_tokens: Maximum tokens in the response
+        max_tokens: Maximum tokens in the response. Defaults to 65536 to match
+            the Responses API ceiling; providers with lower caps will silently
+            truncate.
         timeout: Request timeout in seconds
 
     Returns:
@@ -326,6 +460,12 @@ def call_llm(
             f"Missing API key for provider '{config.provider}'. "
             f"Set {config.provider.upper()}_API_KEY in .env"
         )
+    if config.api_key.startswith("your_"):
+        raise ValueError(
+            f"Placeholder API key detected for provider '{config.provider}' "
+            f"('{config.api_key}'). Replace it in .env with a real key from "
+            f"{PROVIDERS.get(config.provider, {}).get('reg_url', 'the provider console')}."
+        )
 
     provider_def = PROVIDERS.get(config.provider, {})
     provider_type = provider_def.get("type", "openai")
@@ -335,6 +475,8 @@ def call_llm(
         url, headers, body = _build_gemini_request(config, prompt, images, max_tokens)
     elif provider_type == "claude":
         url, headers, body = _build_claude_request(config, prompt, images, max_tokens)
+    elif provider_type == "responses":
+        url, headers, body = _build_responses_request(config, prompt, images, max_tokens)
     else:
         url, headers, body = _build_openai_request(config, prompt, images, max_tokens)
 
@@ -355,14 +497,16 @@ def call_llm(
         return _parse_gemini_response(data)
     elif provider_type == "claude":
         return _parse_claude_response(data)
+    elif provider_type == "responses":
+        return _parse_responses_response(data)
     else:
         return _parse_openai_response(data)
 
 
-def call_text_llm(prompt: str, max_tokens: int = 4096) -> str:
+def call_text_llm(prompt: str, max_tokens: int = 4096, timeout: int = 300) -> str:
     """Call text LLM using TEXT_PROVIDER config from .env."""
     config = load_text_config()
-    return call_llm(prompt, config, max_tokens=max_tokens)
+    return call_llm(prompt, config, max_tokens=max_tokens, timeout=timeout)
 
 
 def call_vision_llm(
@@ -379,6 +523,7 @@ def call_vision_llm(
 # Tool-calling interface (OpenAI-compatible providers only)
 # ---------------------------------------------------------------------------
 
+
 def _inject_images_into_last_user_message(
     messages: list[dict],
     images: list[str],
@@ -389,16 +534,16 @@ def _inject_images_into_last_user_message(
         if msgs[i].get("role") == "user":
             content = msgs[i].get("content", "")
             parts: list = (
-                [{"type": "text", "text": content}]
-                if isinstance(content, str)
-                else list(content)
+                [{"type": "text", "text": content}] if isinstance(content, str) else list(content)
             )
             for img_path in images:
                 b64, mime = encode_image(img_path)
-                parts.append({
-                    "type": "image_url",
-                    "image_url": {"url": f"data:{mime};base64,{b64}"},
-                })
+                parts.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime};base64,{b64}"},
+                    }
+                )
             msgs[i] = {**msgs[i], "content": parts}
             break
     return msgs
@@ -408,7 +553,7 @@ def call_llm_with_tools(
     messages: list[dict],
     tools: list[dict],
     config: ProviderConfig,
-    images: Optional[list[str]] = None,
+    images: list[str] | None = None,
     max_tokens: int = 512,
     timeout: int = 60,
 ) -> dict:
@@ -439,6 +584,12 @@ def call_llm_with_tools(
             f"Missing API key for provider '{config.provider}'. "
             f"Set {config.provider.upper()}_API_KEY in .env"
         )
+    if config.api_key.startswith("your_"):
+        raise ValueError(
+            f"Placeholder API key detected for provider '{config.provider}' "
+            f"('{config.api_key}'). Replace it in .env with a real key from "
+            f"{PROVIDERS.get(config.provider, {}).get('reg_url', 'the provider console')}."
+        )
 
     provider_def = PROVIDERS.get(config.provider, {})
     provider_type = provider_def.get("type", "openai")
@@ -449,11 +600,7 @@ def call_llm_with_tools(
             "Use an OpenAI-compatible provider (e.g. siliconflow, deepseek, kimi)."
         )
 
-    msgs = (
-        _inject_images_into_last_user_message(messages, images)
-        if images
-        else messages
-    )
+    msgs = _inject_images_into_last_user_message(messages, images) if images else messages
 
     url = f"{config.base_url.rstrip('/')}/chat/completions"
     headers = {

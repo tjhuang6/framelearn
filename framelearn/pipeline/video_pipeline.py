@@ -290,7 +290,9 @@ class VideoPipeline:
 
                 # Step 5: Deduplicate keyframes
                 print("🔍 关键帧去重...")
-                dedup = KeyframeDeduplicator(similarity_threshold=0.9)
+                dedup = KeyframeDeduplicator(
+                    similarity_threshold=config_get("video.similarity_threshold", 0.95)
+                )
                 unique_frames = dedup.deduplicate(
                     raw_frames,
                     max_frames=config_get("video.max_keyframes", 100),

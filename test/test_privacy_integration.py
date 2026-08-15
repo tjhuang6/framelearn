@@ -28,7 +28,7 @@ def test_privacy_tracker_integration():
         "vision": {
             "vision_mode": "api",
             "vision_provider": "siliconflow",
-            "vision_model": "Qwen3.6-35B-A3B",
+            "vision_model": "Qwen3-VL-8B-Instruct",
         },
         "privacy": {
             "privacy_hints": True,

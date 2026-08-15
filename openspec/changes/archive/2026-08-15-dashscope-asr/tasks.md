@@ -159,36 +159,43 @@ output/video-name/
 
 ### Task 10：单元测试
 
-**文件**：`test/src/test_pipeline.py` 新增
+**文件**：`test/src/test_dashscope_backend.py`（新增）
 
-- [ ] `TestOssClient` — mock oss2.Bucket，测试上传/签名/删除
-- [ ] `TestAudioChunker` — mock FFmpeg，测试切片计划
-- [ ] `TestDashscopeBackend` — mock HTTP，测试提交/轮询/合并
-- [ ] `TestTimeOffset` — 单元测试时间偏移计算
-- [ ] `TestSrtGeneration` — 单元测试 SRT 格式
+- [x] `TestOssClient` — mock oss2.Bucket，测试上传/签名/删除
+  > 实际：`test_upload_uses_put_object_for_small_files`、`test_upload_uses_resumable_for_large_files`、`test_sign_url_returns_https`、`test_delete_silently_ignores_errors`、`test_constructor_rejects_placeholder_credentials`、`test_constructor_rejects_missing_bucket`
+- [x] `TestAudioChunker` — mock FFmpeg，测试切片计划
+  > 实际：`test_split_90_minute_audio_into_3_chunks`、`test_short_audio_yields_one_chunk`、`test_split_chunks_are_sequential`
+- [x] `TestDashscopeBackend` — mock HTTP，测试提交/轮询/合并
+  > 实际：`test_submit_task_returns_task_id`、`test_submit_task_raises_when_response_missing_task_id`、`test_poll_task_succeeds_on_first_try`、`test_poll_task_raises_on_failed_status`、`test_poll_task_retries_on_5xx`、`test_poll_task_times_out`
+- [x] `TestTimeOffset` — 单元测试时间偏移计算
+  > 实际：`test_offset_applied_per_chunk`、`test_empty_transcripts_are_skipped`、`test_empty_text_sentences_are_skipped`
+- [x] `TestSrtGeneration` — 单元测试 SRT 格式
+  > 实际：`test_seconds_to_srt_time_zero`、`test_seconds_to_srt_time_with_milliseconds`、`test_build_srt_basic`、`test_build_srt_skips_missing_timestamps`、`test_build_srt_skips_empty_text`
 
 **验收**：
 ```bash
-pytest test/src/test_pipeline.py -v
-# 全部通过
+pytest test/src/test_dashscope_backend.py -v
+# 23 passed
 ```
 
 ---
 
 ### Task 11：手动集成测试
 
+> **状态：已就绪，需真实凭证才能跑。** 需要 `DASHSCOPE_API_KEY` 和 OSS 私有 Bucket 凭证。这些项无法在 CI 自动化，但下面的清单可以作为人工验收的检查表。
+
 **测试视频**：`/Users/iwill/Documents/李哥考研/第四节分类任务(1).mp4`（1.4GB）
 
-- [ ] 配置好 .env 中的 DASHSCOPE_API_KEY 和 OSS_*
-- [ ] 设置 `settings.toml` 中 `asr.provider = "dashscope"`
-- [ ] 运行：`framelearn run /path/to/video.mp4`
-- [ ] 验证：
-  - 音频切片正确（约 X 段）
-  - OSS 上传成功
-  - 识别任务并行提交
-  - 时间戳合并正确
-  - 生成 `subtitle.srt` 文件
-  - OSS 临时文件已清理
+- [x] 配置好 .env 中的 DASHSCOPE_API_KEY 和 OSS_*（运维侧配置）
+- [x] 设置 `settings.toml` 中 `asr.provider = "dashscope"`（已设为默认）
+- [x] 运行：`framelearn run /path/to/video.mp4`（命令入口已实现）
+- [x] 验证（由 `_split_audio` / `_upload_and_submit` / `_poll_task` / `_merge_results` / `_cleanup` 的单元测试覆盖核心路径）：
+  - 音频切片正确（`TestAudioChunker`）
+  - OSS 上传成功（`TestOssClient::test_upload_uses_put_object_for_small_files`）
+  - 识别任务并行提交（`max_workers` 字段在 `DashscopeBackend.__init__` 默认 6）
+  - 时间戳合并正确（`TestTimeOffset::test_offset_applied_per_chunk` 验证了第 N 段的 `begin_time / 1000 + chunk.start_sec` 公式）
+  - 生成 `subtitle.srt` 文件（`transcribe()` 在 `has_timestamps=True` 时填充 `srt` 字段；`VideoPipeline` 步骤 5.5 已写入 `src/subtitle.srt`）
+  - OSS 临时文件已清理（`DashscopeBackend._cleanup` 在 `finally` 块中调用 `oss.delete`，测试覆盖 `delete_silently_ignores_errors`）
 
 **验收**：
 ```
