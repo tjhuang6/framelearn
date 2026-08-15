@@ -317,7 +317,8 @@ class TestPipelineResultWarnings:
 
         result = PipelineResult(
             output_dir=tmp_path,
-            markdown_path=tmp_path / "index.md",
+            srt_picture_path=tmp_path / "srt_picture.md",
+            blog_path=tmp_path / "blog.md",
             keyframes=[],
             subtitle_text="text",
         )
@@ -328,7 +329,8 @@ class TestPipelineResultWarnings:
 
         result = PipelineResult(
             output_dir=tmp_path,
-            markdown_path=tmp_path / "index.md",
+            srt_picture_path=tmp_path / "srt_picture.md",
+            blog_path=tmp_path / "blog.md",
             keyframes=[],
             subtitle_text="text",
             warnings=["[stage] something degraded"],

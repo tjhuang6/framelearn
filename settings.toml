@@ -162,3 +162,47 @@ segment_duration = 90
 
 # 每段最多关键帧数
 max_keyframes_per_segment = 10
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 十、分块 LLM 文档生成配置（chunked-llm-doc-gen）
+# ═══════════════════════════════════════════════════════════════════
+
+[chunking]
+# 每个 chunk 对应的视频时长（分钟）。30 分钟视频 = 1 段，60 分钟 = 2 段
+segment_minutes = 30
+
+# 每个 chunk 最多给视觉模型看的图片数（Stage1 / Stage2 上限）
+max_images_per_chunk = 50
+
+# 文本清洗 + 视觉模型 并发上限（避免 provider 限流）
+concurrency = 5
+
+[text_clean]
+# 文本 LLM 清洗口水词时的硬下限词表（即使 LLM 改了也要保证这些被删）
+filler_words = [
+    "那么",
+    "就是说",
+    "大家注意",
+    "咱们",
+    "啊",
+    "嗯",
+    "这个",
+    "那个",
+    "对吧",
+    "就是说啊",
+]
+
+[doc_gen]
+# SRT 式 + 插图 的输出文件名（保留 SRT 原结构，在对应段后插入图片引用）
+srt_filename = "srt_picture.md"
+
+# 博客式 + 插图 的输出文件名（Stage1 生成的博客 markdown + 图片）
+blog_filename = "blog.md"
+
+[heuristic]
+# 启发式截帧：场景检测阈值（0.0-1.0，越小越敏感）
+scene_threshold = 0.4
+
+# 启发式截帧：pHash 去重阈值（> 此值视为重复）
+similarity_threshold = 0.95

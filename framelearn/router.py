@@ -129,7 +129,8 @@ class CommandRouter:
                 raise PipelineExecutionError(result.error)
 
             print(f"\n📂 输出目录：{result.output_dir}")
-            print(f"📄 教材文件：{result.markdown_path}")
+            print(f"📄 SRT 版讲义（含时间戳 + 配图）：{result.srt_picture_path}")
+            print(f"📝 博客版讲义：{result.blog_path}")
             print(f"🖼️  关键帧数：{len(result.keyframes)}")
             return 0
 

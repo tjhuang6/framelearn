@@ -1,4 +1,18 @@
-"""Document generator using Vision API."""
+"""Document generator using Vision API.
+
+.. deprecated::
+    The ``notes`` and ``visual_script`` modes in this module are
+    superseded by the chunked pipeline (``chunked_doc_generator.py``)
+    as of the ``chunked-llm-doc-gen`` OpenSpec change. The new flow
+    produces two Markdown files — ``srt_picture.md`` and ``blog.md`` —
+    and the SRT version is the closer spiritual successor to the
+    "visual_script" mode (SRT structure preserved, images inserted
+    in-place). The "notes" mode is no longer generated.
+
+    :class:`VideoPipeline` no longer calls this module. The class is
+    kept here only for any third-party import. New code should use
+    :class:`ChunkedDocGenerator` directly.
+"""
 
 from pathlib import Path
 from typing import Literal, Optional
