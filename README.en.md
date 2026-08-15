@@ -2,7 +2,7 @@
 
 [中文](README.md) | English
 
-FrameLearn converts local programming tutorial videos into Markdown learning material with timestamped keyframes. The current implementation covers audio extraction, ASR, subtitle cleaning, frame extraction/deduplication, time-based segmented generation, and general-purpose Q&A through Codex app-server.
+FrameLearn converts local programming tutorial videos into Markdown learning material with timestamped keyframes. The current implementation covers audio extraction, ASR, subtitle cleaning, chunked (30 min) LLM calls, heuristic + vision two-stage keyframe selection, dual Markdown output, and general-purpose Q&A through Codex app-server.
 
 ## Current capabilities
 
@@ -12,9 +12,9 @@ FrameLearn converts local programming tutorial videos into Markdown learning mat
   - Aliyun DashScope for chunked long-audio transcription, OSS upload, async polling, checkpoints, and SRT timestamps.
   - SiliconFlow SenseVoice for simpler transcription without timestamps.
 - Accepts an existing `.txt`, `.srt`, or `.vtt` file through `--subtitle` to skip ASR.
-- Combines FFmpeg scene detection and fixed-interval frames, then deduplicates with perceptual hashing.
-- Automatically segments and caches generation for long subtitles or large frame sets.
-- Always produces `notes.md` and also produces `index.md` in the configured `visual_script`, `notes`, or `textbook` mode.
+- **Chunked LLM document generation**: SRT is split into 30-minute chunks (`[chunking] segment_minutes`); each chunk is sent once to the text LLM for filler removal, then a Qwen3-VL vision model runs two stages (text+images to pick timestamps, then image-only to drop redundant/noisy frames). A 30-min video uses ≤ 3 LLM calls regardless of length.
+- Always produces two Markdown files: `srt_picture.md` (preserves SRT structure, timestamps + embedded images) and `blog.md` (blog-style narrative + the same images).
+- Heuristic frame extraction (FFmpeg scene detection + pHash dedup) is summarized by SHA256 in the manifest, so a config change or a different frame set invalidates the cache automatically.
 - Routes `ask` through Codex app-server or a compatible text API.
 
 ## Current limitations
@@ -23,7 +23,7 @@ FrameLearn converts local programming tutorial videos into Markdown learning mat
 - `summarize` only prints instructions for an external `/summarize-learning` skill.
 - `ask` is a general workspace conversation, not a tutorial-grounded RAG implementation.
 - FrameLearn's current app-server turn sends text only. Use `runtime.vision_mode = "api"` when document generation must inspect image pixels.
-- Agent keyframe selection is experimental. Its API image-evaluation branch references a `ProviderAdapter` class that does not currently exist; keep it disabled.
+- The legacy `agent_keyframe_selector.py` and the `notes` / `visual_script` modes of `doc_generator.py` are superseded by the chunked flow and kept only for back-compat.
 
 ## Install
 
@@ -46,7 +46,7 @@ uv add pillow imagehash oss2
 cp .env.example .env
 ```
 
-The repository's current `settings.toml` defaults are:
+The repository's current `settings.toml` key sections:
 
 ```toml
 [runtime]
@@ -59,14 +59,22 @@ vision_model = "Qwen/Qwen3.6-35B-A3B"
 provider = "dashscope"
 model = "qwen-audio-3.0-asr-flash-filetrans"
 
-[doc_generation]
-mode = "visual_script"
-segment_duration = 90
-max_keyframes_per_segment = 10
+[chunking]
+segment_minutes = 30          # max video duration per chunk
+max_images_per_chunk = 50     # max frames kept per chunk
+concurrency = 5               # max in-flight LLM calls per stage
 
-[agent]
-keyframe_selection = false
-quality_review = false
+[text_clean]
+filler_words = ["那么", "就是说", "大家注意", "咱们", "啊", "嗯", "这个", "那个", "对吧"]
+
+[heuristic]
+scene_threshold = 0.4         # FFmpeg scene-detection threshold (lower = more sensitive)
+similarity_threshold = 0.95   # pHash dedup threshold
+max_frames = 200
+
+[doc_gen]
+srt_filename = "srt_picture.md"   # SRT structure + images
+blog_filename = "blog.md"         # blog-style narrative + same images
 ```
 
 With those defaults, configure at least:
@@ -105,17 +113,20 @@ Traditional commands are `run`, `ask`, `summarize`, and `help`. Natural-language
 
 ```text
 output/<video-stem>/
-├── index.md
-├── notes.md
+├── srt_picture.md                 # SRT structure + timestamps + images
+├── blog.md                        # blog-style narrative + same images
 ├── src/
-│   ├── subtitle.txt
+│   ├── subtitle.txt               # cleaned plain text
 │   ├── subtitle.srt               # when timestamped SRT is available
-│   └── frame_00h01m30s.jpg
-├── segments_<mode>/               # generated for segmented runs
-└── temp/                          # DashScope chunks when configured to keep them
+│   ├── frame_00h01m30s.jpg        # heuristic keyframes (timestamped name)
+│   ├── extra_frame_xxx.jpg        # Stage1-captured extra frames
+│   ├── subtitle_manifest.json     # subtitle cache validation
+│   └── keyframe_manifest.json     # heuristic-frames digest (short-circuits ffmpeg on rerun)
+├── temp/                          # DashScope chunks + intermediate ffmpeg frames
+└── run-report.json                # aggregated fallbacks / cache hits
 ```
 
-Existing subtitle, frame, and segment files act as caches. Remove the relevant cache only when you intentionally want a full rerun.
+Existing subtitle, frame, and manifest files act as caches. Config changes (`[chunking]`, `[text_clean]`, `[doc_gen]`, `[heuristic]`) or a different frame set automatically invalidate the relevant cache. Remove the cache only when you intentionally want a full rerun.
 
 ## Pipeline
 

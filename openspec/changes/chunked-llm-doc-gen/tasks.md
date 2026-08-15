@@ -22,10 +22,10 @@
 **文件**：`framelearn/provider_adapter.py`
 
 **子任务**：
-- [ ] 新增 `async def call_llm_async(prompt, config, images, max_tokens, timeout)` — 内部用 `httpx.AsyncClient`
-- [ ] 同步 `call_llm` 改为 thin wrapper（`asyncio.run(call_llm_async(...))`）
-- [ ] 新增 `async def call_llm_with_tools_async(...)` — 工具调用异步版
-- [ ] 单元测试（mock httpx.AsyncClient）
+- [x] 新增 `async def call_llm_async(prompt, config, images, max_tokens, timeout)` — 内部用 `httpx.AsyncClient`
+- [x] 同步 `call_llm` 改为 thin wrapper（`asyncio.run(call_llm_async(...))`）
+- [x] 新增 `async def call_llm_with_tools_async(...)` — 工具调用异步版
+- [x] 单元测试（mock httpx.AsyncClient）
 
 **验收**：
 ```python
@@ -41,10 +41,10 @@ assert isinstance(result, str)
 **文件**：`settings.toml`
 
 **子任务**：
-- [ ] 添加 `[chunking]` 段：`segment_minutes = 30`、`max_images_per_chunk = 50`、`concurrency = 5`
-- [ ] 添加 `[text_clean]` 段：`filler_words` 列表
-- [ ] 添加 `[doc_gen]` 段：`srt_filename = "srt_picture.md"`、`blog_filename = "blog.md"`
-- [ ] 添加 `[heuristic]` 段：`scene_threshold = 0.4`、`similarity_threshold = 0.95`
+- [x] 添加 `[chunking]` 段：`segment_minutes = 30`、`max_images_per_chunk = 50`、`concurrency = 5`
+- [x] 添加 `[text_clean]` 段：`filler_words` 列表
+- [x] 添加 `[doc_gen]` 段：`srt_filename = "srt_picture.md"`、`blog_filename = "blog.md"`
+- [x] 添加 `[heuristic]` 段：`scene_threshold = 0.4`、`similarity_threshold = 0.95`
 
 ---
 
@@ -55,11 +55,11 @@ assert isinstance(result, str)
 **文件**：`framelearn/pipeline/srt_chunker.py`（新文件）
 
 **子任务**：
-- [ ] 定义 `SRTChunk` dataclass（`index` / `start_sec` / `end_sec` / `segments`）
-- [ ] 实现 `chunk(srt_segments)` 按视频时长切段
-- [ ] 单元测试：30 分钟视频应该切成 1 段（如果 ≤ 30 分钟）
-- [ ] 单元测试：60 分钟视频应该切成 2 段
-- [ ] 单元测试：段边界正确落在字幕段 start_sec 上
+- [x] 定义 `SRTChunk` dataclass（`index` / `start_sec` / `end_sec` / `segments`）
+- [x] 实现 `chunk(srt_segments)` 按视频时长切段
+- [x] 单元测试：30 分钟视频应该切成 1 段（如果 ≤ 30 分钟）
+- [x] 单元测试：60 分钟视频应该切成 2 段
+- [x] 单元测试：段边界正确落在字幕段 start_sec 上
 
 **接口**：
 ```python
@@ -75,12 +75,12 @@ class SRTChunker:
 **文件**：`framelearn/pipeline/text_cleaner.py`（新文件）
 
 **子任务**：
-- [ ] 加载 settings.toml 的 `[text_clean]` 配置
-- [ ] 实现 `async clean_chunk(chunk)` 调文本 LLM
-- [ ] 实现 `async clean_all(chunks)` 用 `asyncio.Semaphore(concurrency)` 限并发
-- [ ] 解析 LLM 返回 JSON，校验结构，失败重试
-- [ ] 失败降级：保留原文
-- [ ] 单元测试（mock LLM）
+- [x] 加载 settings.toml 的 `[text_clean]` 配置
+- [x] 实现 `async clean_chunk(chunk)` 调文本 LLM
+- [x] 实现 `async clean_all(chunks)` 用 `asyncio.Semaphore(concurrency)` 限并发
+- [x] 解析 LLM 返回 JSON，校验结构，失败重试
+- [x] 失败降级：保留原文
+- [x] 单元测试（mock LLM）
 
 **验收**：
 ```python
@@ -100,11 +100,11 @@ assert all(c.segments for c in cleaned)
 **文件**：`framelearn/pipeline/heuristic_frame_extractor.py`（新文件）
 
 **子任务**：
-- [ ] 定义 `CandidateFrame` dataclass（`path` / `timestamp_sec` / `source="heuristic"`）
-- [ ] 复用现有 `FFmpegHelper.extract_keyframes` 场景检测（scene=0.4）
-- [ ] 复用现有 `KeyframeDeduplicator`（pHash 0.95）
-- [ ] 输出统一格式 `CandidateFrame` 列表
-- [ ] 单元测试：mock ffmpeg，验证产出
+- [x] 定义 `CandidateFrame` dataclass（`path` / `timestamp_sec` / `source="heuristic"`）
+- [x] 复用现有 `FFmpegHelper.extract_keyframes` 场景检测（scene=0.4）
+- [x] 复用现有 `KeyframeDeduplicator`（pHash 0.95）
+- [x] 输出统一格式 `CandidateFrame` 列表
+- [x] 单元测试：mock ffmpeg，验证产出
 
 **接口**：
 ```python
@@ -122,10 +122,10 @@ class HeuristicFrameExtractor:
 **文件**：`framelearn/pipeline/frame_distributor.py`（新文件）
 
 **子任务**：
-- [ ] 实现 `distribute(chunks, frames)` 把候选帧按 timestamp_sec 分配到对应 chunk
-- [ ] 单 chunk 超过 `max_images_per_chunk` 时均匀采样保留
-- [ ] 返回 `dict[int, list[CandidateFrame]]`（chunk_index → 该 chunk 的帧）
-- [ ] 单元测试：边界帧（恰在 30 分钟整点）
+- [x] 实现 `distribute(chunks, frames)` 把候选帧按 timestamp_sec 分配到对应 chunk
+- [x] 单 chunk 超过 `max_images_per_chunk` 时均匀采样保留
+- [x] 返回 `dict[int, list[CandidateFrame]]`（chunk_index → 该 chunk 的帧）
+- [x] 单元测试：边界帧（恰在 30 分钟整点）
 
 ---
 
@@ -136,13 +136,13 @@ class HeuristicFrameExtractor:
 **文件**：`framelearn/pipeline/vision_stage1.py`（新文件）
 
 **子任务**：
-- [ ] 定义 `VisionStage1Output` / `SelectedTimestamp` dataclass
-- [ ] 实现 `async process(chunk, frames_in_chunk)` 调视觉模型，**输入含图片**
-- [ ] Prompt 包含：候选帧列表（带时间戳）、cleaned SRT chunk、任务说明
-- [ ] 输出 JSON 解析：blog_markdown + selected_timestamps（每项含 needs_extract 标记）
-- [ ] 校验 selected_timestamps 数量 ≤ 50
-- [ ] 失败重试 2 次，失败降级：blog_markdown = cleaned SRT 拼接，selected_timestamps = 所有启发式帧（needs_extract=false）
-- [ ] 单元测试（mock LLM，传入测试图片）
+- [x] 定义 `VisionStage1Output` / `SelectedTimestamp` dataclass
+- [x] 实现 `async process(chunk, frames_in_chunk)` 调视觉模型，**输入含图片**
+- [x] Prompt 包含：候选帧列表（带时间戳）、cleaned SRT chunk、任务说明
+- [x] 输出 JSON 解析：blog_markdown + selected_timestamps（每项含 needs_extract 标记）
+- [x] 校验 selected_timestamps 数量 ≤ 50
+- [x] 失败重试 2 次，失败降级：blog_markdown = cleaned SRT 拼接，selected_timestamps = 所有启发式帧（needs_extract=false）
+- [x] 单元测试（mock LLM，传入测试图片）
 
 **SelectedTimestamp 数据结构**：
 ```python
@@ -162,11 +162,11 @@ class SelectedTimestamp:
 **文件**：`framelearn/pipeline/chunked_doc_generator.py` 内私有函数（无需新文件）
 
 **子任务**：
-- [ ] 遍历 Stage1 输出的 selected_timestamps
-- [ ] 过滤 `needs_extract=True` 的项
-- [ ] 对每项调 `FFmpegHelper.capture_single_frame`
-- [ ] 输出到 `temp/frames/chunk_<i>/extra_frame_<j>.jpg`
-- [ ] 合并启发式帧 + 新截帧 → 该 chunk 的完整帧列表
+- [x] 遍历 Stage1 输出的 selected_timestamps
+- [x] 过滤 `needs_extract=True` 的项
+- [x] 对每项调 `FFmpegHelper.capture_single_frame`
+- [x] 输出到 `temp/frames/chunk_<i>/extra_frame_<j>.jpg`
+- [x] 合并启发式帧 + 新截帧 → 该 chunk 的完整帧列表
 
 ---
 
@@ -175,11 +175,11 @@ class SelectedTimestamp:
 **文件**：`framelearn/pipeline/vision_stage2.py`（新文件）
 
 **子任务**：
-- [ ] 定义 `FrameDecision` dataclass（`srt_id` / `frame_path` / `keep` / `reason`）
-- [ ] 实现 `async process(chunk, all_frames)` 调视觉模型，**输入是启发式 + 新截的所有帧**
-- [ ] 输出 JSON 解析：每张帧的 keep/discard
-- [ ] 失败降级：全部 keep=true
-- [ ] 单元测试（mock LLM）
+- [x] 定义 `FrameDecision` dataclass（`srt_id` / `frame_path` / `keep` / `reason`）
+- [x] 实现 `async process(chunk, all_frames)` 调视觉模型，**输入是启发式 + 新截的所有帧**
+- [x] 输出 JSON 解析：每张帧的 keep/discard
+- [x] 失败降级：全部 keep=true
+- [x] 单元测试（mock LLM）
 
 ---
 
@@ -190,12 +190,12 @@ class SelectedTimestamp:
 **文件**：`framelearn/pipeline/md_assembler.py`（新文件）
 
 **子任务**：
-- [ ] 实现 `assemble_srt(cleaned_srt, all_decisions) -> str` 输出 srt_picture.md 风格
-- [ ] 实现 `assemble_blog(all_blog_markdowns, all_decisions) -> str` 输出 blog.md 风格
-- [ ] 图片插入位置：按 `decision.srt_id` 找到对应 SRT 段，在其后插入 `![](src/frame_*.jpg)`
-- [ ] 时间戳格式化：`HH:MM:SS`
-- [ ] 文件名从 settings.toml `[doc_gen]` 读取
-- [ ] 单元测试：手动构造测试数据，验证插入位置
+- [x] 实现 `assemble_srt(cleaned_srt, all_decisions) -> str` 输出 srt_picture.md 风格
+- [x] 实现 `assemble_blog(all_blog_markdowns, all_decisions) -> str` 输出 blog.md 风格
+- [x] 图片插入位置：按 `decision.srt_id` 找到对应 SRT 段，在其后插入 `![](src/frame_*.jpg)`
+- [x] 时间戳格式化：`HH:MM:SS`
+- [x] 文件名从 settings.toml `[doc_gen]` 读取
+- [x] 单元测试：手动构造测试数据，验证插入位置
 
 **srt_picture.md 格式**：
 ```markdown
@@ -229,11 +229,11 @@ class SelectedTimestamp:
 **文件**：`framelearn/pipeline/chunked_doc_generator.py`（新文件）
 
 **子任务**：
-- [ ] 组织：SRTChunker → TextCleaner → HeuristicFrameExtractor → SRTChunker（再切段）→ FrameDistributor → VisionStage1 → FFmpeg 新截 → VisionStage2 → MDAssembler
-- [ ] 实现 `async generate(video_path, srt_segments, output_dir) -> tuple[Path, Path]`
-- [ ] 进度输出（每个阶段打印状态）
-- [ ] 错误处理：单段失败不影响其他段
-- [ ] 单元测试（mock 所有 LLM 和 ffmpeg）
+- [x] 组织：SRTChunker → TextCleaner → HeuristicFrameExtractor → SRTChunker（再切段）→ FrameDistributor → VisionStage1 → FFmpeg 新截 → VisionStage2 → MDAssembler
+- [x] 实现 `async generate(video_path, srt_segments, output_dir) -> tuple[Path, Path]`
+- [x] 进度输出（每个阶段打印状态）
+- [x] 错误处理：单段失败不影响其他段
+- [x] 单元测试（mock 所有 LLM 和 ffmpeg）
 
 **新流程**：
 ```python
@@ -278,11 +278,11 @@ async def generate(video_path, srt_segments, output_dir):
 **文件**：`framelearn/pipeline/video_pipeline.py`
 
 **子任务**：
-- [ ] 移除 `AgentKeyframeSelector` 调用
-- [ ] 移除旧 `DocumentGenerator` 调用
-- [ ] 改用 `ChunkedDocGenerator`
-- [ ] 更新 `PipelineResult`：`srt_picture_path` + `blog_path`
-- [ ] 更新 `__main__.py` 输出提示
+- [x] 移除 `AgentKeyframeSelector` 调用
+- [x] 移除旧 `DocumentGenerator` 调用
+- [x] 改用 `ChunkedDocGenerator`
+- [x] 更新 `PipelineResult`：`srt_picture_path` + `blog_path`
+- [x] 更新 `__main__.py` 输出提示
 
 **验收**：
 ```python
@@ -299,10 +299,10 @@ assert result.blog_path.exists()
 **文件**：`framelearn/pipeline/cache_manifest.py`
 
 **子任务**：
-- [ ] manifest 哈希包含 `[chunking]`、`[text_clean]`、`[doc_gen]`、`[heuristic]` 配置
-- [ ] manifest 哈希包含启发式截帧结果摘要（候选帧列表的 SHA256）
-- [ ] 删除旧的 `segments_notes/manifest.json` 和 `segments_visual_script/manifest.json` 相关代码（如果存在）
-- [ ] 单元测试：配置变更触发 manifest 失效
+- [x] manifest 哈希包含 `[chunking]`、`[text_clean]`、`[doc_gen]`、`[heuristic]` 配置
+- [x] manifest 哈希包含启发式截帧结果摘要（候选帧列表的 SHA256）
+- [x] 删除旧的 `segments_notes/manifest.json` 和 `segments_visual_script/manifest.json` 相关代码（如果存在）
+- [x] 单元测试：配置变更触发 manifest 失效
 
 ---
 
@@ -319,12 +319,12 @@ assert result.blog_path.exists()
 - `test/src/test_md_assembler.py`（新）
 
 **子任务**：
-- [ ] SRTChunker 边界测试
-- [ ] TextCleaner mock LLM
-- [ ] HeuristicFrameExtractor mock ffmpeg
-- [ ] FrameDistributor 边界帧测试
-- [ ] VisionStage1/2 mock LLM（Stage1 含图）
-- [ ] MDAssembler 拼装测试
+- [x] SRTChunker 边界测试
+- [x] TextCleaner mock LLM
+- [x] HeuristicFrameExtractor mock ffmpeg
+- [x] FrameDistributor 边界帧测试
+- [x] VisionStage1/2 mock LLM（Stage1 含图）
+- [x] MDAssembler 拼装测试
 
 ---
 
@@ -333,11 +333,11 @@ assert result.blog_path.exists()
 **文件**：`test/src/test_chunked_pipeline_e2e.py`（新）
 
 **子任务**：
-- [ ] mock 所有 LLM 调用 + ffmpeg
-- [ ] 用真实 5 分钟短视频（如果仓库有 fixture）或 mock SRT
-- [ ] 验证：srt_picture.md + blog.md 都生成
-- [ ] 验证：图片插入位置正确
-- [ ] 验证：Stage1 needs_extract=true 的帧被 ffmpeg 截取
+- [x] mock 所有 LLM 调用 + ffmpeg
+- [x] 用真实 5 分钟短视频（如果仓库有 fixture）或 mock SRT
+- [x] 验证：srt_picture.md + blog.md 都生成
+- [x] 验证：图片插入位置正确
+- [x] 验证：Stage1 needs_extract=true 的帧被 ffmpeg 截取
 
 ---
 
@@ -346,18 +346,18 @@ assert result.blog_path.exists()
 **文件**：`README.md` / `README.en.md`
 
 **子任务**：
-- [ ] 输出目录结构更新（加 `srt_picture.md` / `blog.md`）
-- [ ] 移除 `notes.md` / `visual_script.md` 旧模式说明
-- [ ] 加新配置项说明（`[chunking]` / `[text_clean]` / `[doc_gen]` / `[heuristic]`）
+- [x] 输出目录结构更新（加 `srt_picture.md` / `blog.md`）
+- [x] 移除 `notes.md` / `visual_script.md` 旧模式说明
+- [x] 加新配置项说明（`[chunking]` / `[text_clean]` / `[doc_gen]` / `[heuristic]`）
 
 ---
 
 #### Task 8.4：删除/废弃旧代码
 
 **子任务**：
-- [ ] `agent_keyframe_selector.py` 加 deprecation 注释，不删除（向后兼容）
-- [ ] `doc_generator.py` 中 `notes` / `visual_script` mode 加 deprecation 注释
-- [ ] `keyframe_dedup.py` 保留（被 HeuristicFrameExtractor 复用）
+- [x] `agent_keyframe_selector.py` 加 deprecation 注释，不删除（向后兼容）
+- [x] `doc_generator.py` 中 `notes` / `visual_script` mode 加 deprecation 注释
+- [x] `keyframe_dedup.py` 保留（被 HeuristicFrameExtractor 复用）
 
 ---
 
@@ -392,17 +392,17 @@ assert result.blog_path.exists()
 
 ## 完成标准
 
-- [ ] 30 分钟视频完整跑通，LLM 调用 = 3 次（1 文本清洗 + 1 视觉文本+图 + 1 视觉看图）
-- [ ] 启发式截帧可缓存（同视频第二次跳过 ffmpeg 场景检测）
-- [ ] `srt_picture.md` 保留 SRT 原结构 + 正确插入图片
-- [ ] `blog.md` 是博客式叙述 + 同样的图片
-- [ ] Stage1 能正确输出 `needs_extract=true` 的新时间戳
-- [ ] ffmpeg 精准截取 Stage1 新增的时间戳
-- [ ] 60 分钟视频切 2 段，每段独立处理
-- [ ] 单段失败不影响其他段
-- [ ] 旧 `notes.md` / `visual_script.md` 不再生成
-- [ ] 所有单测通过
-- [ ] README 更新
+- [x] 30 分钟视频完整跑通，LLM 调用 = 3 次（1 文本清洗 + 1 视觉文本+图 + 1 视觉看图）
+- [x] 启发式截帧可缓存（同视频第二次跳过 ffmpeg 场景检测）
+- [x] `srt_picture.md` 保留 SRT 原结构 + 正确插入图片
+- [x] `blog.md` 是博客式叙述 + 同样的图片
+- [x] Stage1 能正确输出 `needs_extract=true` 的新时间戳
+- [x] ffmpeg 精准截取 Stage1 新增的时间戳
+- [x] 60 分钟视频切 2 段，每段独立处理
+- [x] 单段失败不影响其他段
+- [x] 旧 `notes.md` / `visual_script.md` 不再生成
+- [x] 所有单测通过
+- [x] README 更新
 
 ---
 

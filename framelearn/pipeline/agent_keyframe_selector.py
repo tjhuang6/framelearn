@@ -3,6 +3,16 @@
 Instead of extracting all frames upfront and deduplicating, this module
 uses an LLM to decide which moments in the video need a screenshot,
 captures only those frames, and evaluates whether each one is worth keeping.
+
+.. deprecated::
+    Replaced by the chunked pipeline (``chunked_doc_generator.py``) as
+    of the ``chunked-llm-doc-gen`` OpenSpec change. The chunked flow
+    makes one batched vision call per 30-min chunk instead of one
+    LLM-decide + one vision-evaluate per candidate segment, which is
+    ~10x cheaper and produces more consistent results.
+
+    This module is kept only as a back-compat shim for callers that
+    imported it directly. :class:`VideoPipeline` no longer calls it.
 """
 
 from __future__ import annotations

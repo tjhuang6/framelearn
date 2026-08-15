@@ -7,6 +7,7 @@ through a unified call_llm() interface. Internally branches on provider type:
   - "openai"  → OpenAI-compatible API (default for DeepSeek, Kimi, etc.)
 """
 
+import asyncio
 import base64
 import os
 from dataclasses import dataclass
@@ -429,32 +430,8 @@ def _parse_responses_response(data: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
-def call_llm(
-    prompt: str,
-    config: ProviderConfig,
-    images: list[str] | None = None,
-    max_tokens: int = 65536,
-    timeout: int = 300,
-) -> str:
-    """
-    Unified LLM call interface.
-
-    Args:
-        prompt: Text prompt
-        config: Provider configuration (from load_text_config or load_vision_config)
-        images: Optional list of local image file paths (for vision tasks)
-        max_tokens: Maximum tokens in the response. Defaults to 65536 to match
-            the Responses API ceiling; providers with lower caps will silently
-            truncate.
-        timeout: Request timeout in seconds
-
-    Returns:
-        LLM response text
-
-    Raises:
-        ValueError: If provider config is missing API key
-        httpx.HTTPError: On network or HTTP errors
-    """
+def _validate_api_key(config: ProviderConfig) -> None:
+    """Raise ValueError if config.api_key is missing or looks like a placeholder."""
     if not config.api_key:
         raise ValueError(
             f"Missing API key for provider '{config.provider}'. "
@@ -467,10 +444,18 @@ def call_llm(
             f"{PROVIDERS.get(config.provider, {}).get('reg_url', 'the provider console')}."
         )
 
+
+def _dispatch_sync(
+    config: ProviderConfig,
+    prompt: str,
+    images: list[str] | None,
+    max_tokens: int,
+    timeout: int,
+) -> str:
+    """Build + send + parse a sync request; returns response text."""
     provider_def = PROVIDERS.get(config.provider, {})
     provider_type = provider_def.get("type", "openai")
 
-    # Build request based on provider type
     if provider_type == "google":
         url, headers, body = _build_gemini_request(config, prompt, images, max_tokens)
     elif provider_type == "claude":
@@ -480,9 +465,7 @@ def call_llm(
     else:
         url, headers, body = _build_openai_request(config, prompt, images, max_tokens)
 
-    # Execute request
     response = httpx.post(url, headers=headers, json=body, timeout=timeout)
-
     if response.status_code != 200:
         raise httpx.HTTPStatusError(
             f"Provider '{config.provider}' returned {response.status_code}: {response.text}",
@@ -491,16 +474,100 @@ def call_llm(
         )
 
     data = response.json()
-
-    # Parse response based on provider type
     if provider_type == "google":
         return _parse_gemini_response(data)
     elif provider_type == "claude":
         return _parse_claude_response(data)
     elif provider_type == "responses":
         return _parse_responses_response(data)
+    return _parse_openai_response(data)
+
+
+async def _dispatch_async(
+    config: ProviderConfig,
+    prompt: str,
+    images: list[str] | None,
+    max_tokens: int,
+    timeout: int,
+) -> str:
+    """Async version of _dispatch_sync — uses httpx.AsyncClient."""
+    provider_def = PROVIDERS.get(config.provider, {})
+    provider_type = provider_def.get("type", "openai")
+
+    if provider_type == "google":
+        url, headers, body = _build_gemini_request(config, prompt, images, max_tokens)
+    elif provider_type == "claude":
+        url, headers, body = _build_claude_request(config, prompt, images, max_tokens)
+    elif provider_type == "responses":
+        url, headers, body = _build_responses_request(config, prompt, images, max_tokens)
     else:
-        return _parse_openai_response(data)
+        url, headers, body = _build_openai_request(config, prompt, images, max_tokens)
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.post(url, headers=headers, json=body)
+    if response.status_code != 200:
+        raise httpx.HTTPStatusError(
+            f"Provider '{config.provider}' returned {response.status_code}: {response.text}",
+            request=response.request,
+            response=response,
+        )
+
+    data = response.json()
+    if provider_type == "google":
+        return _parse_gemini_response(data)
+    elif provider_type == "claude":
+        return _parse_claude_response(data)
+    elif provider_type == "responses":
+        return _parse_responses_response(data)
+    return _parse_openai_response(data)
+
+
+def call_llm(
+    prompt: str,
+    config: ProviderConfig,
+    images: list[str] | None = None,
+    max_tokens: int = 65536,
+    timeout: int = 300,
+) -> str:
+    """Sync LLM call. Thin wrapper that runs ``_dispatch_async`` in an event loop.
+
+    Retained for callers that can't be migrated to async (e.g. the CLI command
+    parser). For new code prefer ``await call_llm_async(...)``.
+    """
+    _validate_api_key(config)
+    return asyncio.run(
+        _dispatch_async(config, prompt, images, max_tokens, timeout)
+    )
+
+
+async def call_llm_async(
+    prompt: str,
+    config: ProviderConfig,
+    images: list[str] | None = None,
+    max_tokens: int = 65536,
+    timeout: int = 300,
+) -> str:
+    """Async LLM call.
+
+    Mirrors :func:`call_llm` but uses ``httpx.AsyncClient`` so multiple calls
+    can run concurrently under a single event loop.
+
+    Args:
+        prompt: Text prompt.
+        config: Provider configuration.
+        images: Optional list of local image file paths (for vision tasks).
+        max_tokens: Maximum tokens in the response.
+        timeout: Per-request timeout in seconds.
+
+    Returns:
+        LLM response text.
+
+    Raises:
+        ValueError: If provider config is missing API key.
+        httpx.HTTPError: On network or HTTP errors.
+    """
+    _validate_api_key(config)
+    return await _dispatch_async(config, prompt, images, max_tokens, timeout)
 
 
 def call_text_llm(prompt: str, max_tokens: int = 4096, timeout: int = 300) -> str:
@@ -549,48 +616,15 @@ def _inject_images_into_last_user_message(
     return msgs
 
 
-def call_llm_with_tools(
+def _dispatch_tools_sync(
+    config: ProviderConfig,
     messages: list[dict],
     tools: list[dict],
-    config: ProviderConfig,
-    images: list[str] | None = None,
-    max_tokens: int = 512,
-    timeout: int = 60,
+    images: list[str] | None,
+    max_tokens: int,
+    timeout: int,
 ) -> dict:
-    """Call an OpenAI-compatible LLM with tool definitions.
-
-    Requires the model to respond with a tool call (tool_choice="required").
-    Returns the raw response body; the caller parses tool_calls themselves.
-
-    Args:
-        messages: Full conversation history in OpenAI message format.
-        tools: Tool definitions in OpenAI function-calling format
-               (list of {"type": "function", "function": {...}}).
-        config: Provider configuration.
-        images: Optional image paths to inject into the last user message.
-        max_tokens: Maximum tokens in the response.
-        timeout: Request timeout in seconds.
-
-    Returns:
-        Raw JSON response body as a dict.
-
-    Raises:
-        NotImplementedError: For google or claude provider types.
-        ValueError: If API key is missing.
-        httpx.HTTPStatusError: On non-200 HTTP responses.
-    """
-    if not config.api_key:
-        raise ValueError(
-            f"Missing API key for provider '{config.provider}'. "
-            f"Set {config.provider.upper()}_API_KEY in .env"
-        )
-    if config.api_key.startswith("your_"):
-        raise ValueError(
-            f"Placeholder API key detected for provider '{config.provider}' "
-            f"('{config.api_key}'). Replace it in .env with a real key from "
-            f"{PROVIDERS.get(config.provider, {}).get('reg_url', 'the provider console')}."
-        )
-
+    """Sync core of call_llm_with_tools — validate, build, POST, return JSON."""
     provider_def = PROVIDERS.get(config.provider, {})
     provider_type = provider_def.get("type", "openai")
 
@@ -624,3 +658,99 @@ def call_llm_with_tools(
             response=response,
         )
     return response.json()
+
+
+async def _dispatch_tools_async(
+    config: ProviderConfig,
+    messages: list[dict],
+    tools: list[dict],
+    images: list[str] | None,
+    max_tokens: int,
+    timeout: int,
+) -> dict:
+    """Async version of _dispatch_tools_sync — uses httpx.AsyncClient."""
+    provider_def = PROVIDERS.get(config.provider, {})
+    provider_type = provider_def.get("type", "openai")
+
+    if provider_type in ("google", "claude"):
+        raise NotImplementedError(
+            f"Tool calling is not implemented for provider type '{provider_type}'. "
+            "Use an OpenAI-compatible provider (e.g. siliconflow, deepseek, kimi)."
+        )
+
+    msgs = _inject_images_into_last_user_message(messages, images) if images else messages
+
+    url = f"{config.base_url.rstrip('/')}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {config.api_key}",
+        "Content-Type": "application/json",
+    }
+    body = {
+        "model": config.model,
+        "messages": msgs,
+        "tools": tools,
+        "tool_choice": "required",
+        "temperature": 0.3,
+        "max_tokens": max_tokens,
+    }
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.post(url, headers=headers, json=body)
+    if response.status_code != 200:
+        raise httpx.HTTPStatusError(
+            f"Provider '{config.provider}' returned {response.status_code}: {response.text}",
+            request=response.request,
+            response=response,
+        )
+    return response.json()
+
+
+def call_llm_with_tools(
+    messages: list[dict],
+    tools: list[dict],
+    config: ProviderConfig,
+    images: list[str] | None = None,
+    max_tokens: int = 512,
+    timeout: int = 60,
+) -> dict:
+    """Call an OpenAI-compatible LLM with tool definitions.
+
+    Requires the model to respond with a tool call (tool_choice="required").
+    Returns the raw response body; the caller parses tool_calls themselves.
+
+    Args:
+        messages: Full conversation history in OpenAI message format.
+        tools: Tool definitions in OpenAI function-calling format
+               (list of {"type": "function", "function": {...}}).
+        config: Provider configuration.
+        images: Optional image paths to inject into the last user message.
+        max_tokens: Maximum tokens in the response.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        Raw JSON response body as a dict.
+
+    Raises:
+        NotImplementedError: For google or claude provider types.
+        ValueError: If API key is missing.
+        httpx.HTTPStatusError: On non-200 HTTP responses.
+    """
+    _validate_api_key(config)
+    return _dispatch_tools_sync(
+        config, messages, tools, images, max_tokens, timeout
+    )
+
+
+async def call_llm_with_tools_async(
+    messages: list[dict],
+    tools: list[dict],
+    config: ProviderConfig,
+    images: list[str] | None = None,
+    max_tokens: int = 512,
+    timeout: int = 60,
+) -> dict:
+    """Async tool-calling interface. See :func:`call_llm_with_tools` for args."""
+    _validate_api_key(config)
+    return await _dispatch_tools_async(
+        config, messages, tools, images, max_tokens, timeout
+    )

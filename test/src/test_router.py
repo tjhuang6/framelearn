@@ -91,7 +91,8 @@ class TestRunCommand:
         from framelearn.pipeline import PipelineResult
         mock_result = PipelineResult(
             output_dir=tmp_path,
-            markdown_path=tmp_path / "index.md",
+            srt_picture_path=tmp_path / "srt_picture.md",
+            blog_path=tmp_path / "blog.md",
             keyframes=[],
             subtitle_text="",
             error=None,
@@ -118,7 +119,8 @@ class TestRunCommand:
         from framelearn.pipeline import PipelineResult
         mock_result = PipelineResult(
             output_dir=tmp_path,
-            markdown_path=tmp_path / "index.md",
+            srt_picture_path=tmp_path / "srt_picture.md",
+            blog_path=tmp_path / "blog.md",
             keyframes=[],
             subtitle_text="",
             error="FFmpeg 未安装，请先安装：brew install ffmpeg",

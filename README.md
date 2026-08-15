@@ -2,7 +2,7 @@
 
 [English](README.en.md) | 中文
 
-FrameLearn 将本地编程教学视频转换为带关键帧的 Markdown 学习材料。当前实现覆盖音轨提取、ASR、字幕清洗、关键帧抽取/去重、按时间分段生成，以及基于 Codex app-server 的通用问答。
+FrameLearn 将本地编程教学视频转换为带关键帧的 Markdown 学习材料。当前实现覆盖音轨提取、ASR、字幕清洗、分块（30 分钟）LLM 调用、启发式 + 视觉两阶段关键帧选择、双 Markdown 输出，以及基于 Codex app-server 的通用问答。
 
 ## 当前能力
 
@@ -12,9 +12,9 @@ FrameLearn 将本地编程教学视频转换为带关键帧的 Markdown 学习�
   - 阿里云百炼 DashScope：长音频分片、OSS 临时上传、异步转写、断点记录和 SRT 时间戳。
   - 硅基流动 SenseVoice：实现简单，但不返回时间戳。
 - 可通过 `--subtitle` 直接使用已有 `.txt`、`.srt` 或 `.vtt`，跳过 ASR。
-- FFmpeg 场景检测与固定间隔抽帧同时执行，再用 pHash 去重。
-- 长字幕或关键帧较多时自动按段生成并缓存，可中断后复用已生成段落。
-- 每次运行固定生成 `notes.md`，并按配置生成 `index.md`（`visual_script`、`notes` 或 `textbook`）。
+- **分块 LLM 文档生成**：将 SRT 按 30 分钟切段（`[chunking] segment_minutes`），每段一次性发给文本 LLM 去口水词，再用 Qwen3-VL 视觉模型两阶段决策（先看图 + 文本挑时间戳，再回头筛掉重复/无意义帧）。30 分钟视频总 LLM 调用 ≤ 3 次/段数。
+- 每次运行固定生成两个 Markdown：`srt_picture.md`（保留 SRT 段结构、时间戳 + 配图）和 `blog.md`（博客式叙述 + 同样的配图）。
+- 启发式截帧（ffmpeg 场景检测 + pHash 去重）结果会被 SHA256 摘要写入 manifest，配置或视频变化时自动重跑。
 - `ask` 可通过 Codex app-server 或兼容 API 回答通用问题。
 
 ## 尚未实现或受限的能力
@@ -22,7 +22,7 @@ FrameLearn 将本地编程教学视频转换为带关键帧的 Markdown 学习�
 - YouTube/Bilibili URL 会被识别和校验，但在线下载尚未实现；请先下载到本地。
 - `ask` 当前不是“只检索已生成教材”的 RAG 问答；它是工作目录中的通用 Codex/API 对话。
 - 当前 FrameLearn 的 app-server `turn/start` 只发送文字。文档生成若要让模型看到关键帧，应使用 `runtime.vision_mode = "api"`。
-- Agent 关键帧选择为实验功能。API 图像评估路径目前引用了尚不存在的 `ProviderAdapter` 类；保持默认关闭。
+- 旧版 `agent_keyframe_selector.py` / `doc_generator.py`（`notes` / `visual_script` mode）已被分块流程替代，保留仅为向后兼容。
 
 ## 安装
 
@@ -47,7 +47,7 @@ uv add pillow imagehash oss2
 cp .env.example .env
 ```
 
-当前仓库 `settings.toml` 的默认路径是：
+当前仓库 `settings.toml` 的关键段：
 
 ```toml
 [runtime]
@@ -60,14 +60,22 @@ vision_model = "Qwen/Qwen3.6-35B-A3B"
 provider = "dashscope"
 model = "qwen-audio-3.0-asr-flash-filetrans"
 
-[doc_generation]
-mode = "visual_script"
-segment_duration = 90
-max_keyframes_per_segment = 10
+[chunking]
+segment_minutes = 30          # 每段最长视频时长
+max_images_per_chunk = 50     # 单段最多保留的图片数
+concurrency = 5               # 段内并发 LLM 调用上限
 
-[agent]
-keyframe_selection = false
-quality_review = false
+[text_clean]
+filler_words = ["那么", "就是说", "大家注意", "咱们", "啊", "嗯", "这个", "那个", "对吧"]
+
+[heuristic]
+scene_threshold = 0.4         # ffmpeg 场景检测阈值（越低越敏感）
+similarity_threshold = 0.95   # pHash 去重阈值
+max_frames = 200
+
+[doc_gen]
+srt_filename = "srt_picture.md"   # 保留 SRT 结构 + 配图
+blog_filename = "blog.md"         # 博客式叙述 + 同样的配图
 ```
 
 使用默认配置至少需要：
@@ -117,17 +125,20 @@ framelearn
 
 ```text
 output/<视频文件名>/
-├── index.md                       # doc_generation.mode 指定的主文档
-├── notes.md                       # 每次额外生成的笔记版
+├── srt_picture.md                 # SRT 结构 + 时间戳 + 配图
+├── blog.md                        # 博客式叙述 + 同样的配图
 ├── src/
 │   ├── subtitle.txt               # 清洗后的纯文本
 │   ├── subtitle.srt               # ASR/输入提供 SRT 时存在
-│   └── frame_00h01m30s.jpg        # 带整秒时间戳的关键帧
-├── segments_<mode>/               # 触发分段生成时的段落缓存
-└── temp/                          # DashScope 临时切片；是否保留由 asr.keep_temp_files 控制
+│   ├── frame_00h01m30s.jpg        # 启发式截帧（带时间戳）
+│   ├── extra_frame_xxx.jpg        # Stage1 按需补充的帧
+│   ├── subtitle_manifest.json     # 字幕缓存校验
+│   └── keyframe_manifest.json     # 启发式帧摘要（用于重跑跳过 ffmpeg）
+├── temp/                          # DashScope 临时切片 + ffmpeg 中间帧
+└── run-report.json                # 降级事件 / 缓存命中汇总
 ```
 
-缓存会影响重跑：已有 `subtitle.srt` + `subtitle.txt` 会跳过 ASR，已有 `frame_*.jpg` 会跳过抽帧，已有分段 Markdown 会跳过对应 LLM 调用。如需完全重跑，应先备份并删除对应缓存。
+缓存会影响重跑：已有 `subtitle.srt` + `subtitle.txt` 会跳过 ASR，已有 `src/*.jpg` + `keyframe_manifest.json` 会跳过启发式截帧，配置变化（`[chunking]` / `[text_clean]` / `[doc_gen]` / `[heuristic]`）或帧列表变化会自动失效对应缓存。如需完全重跑，应先备份并删除对应缓存。
 
 ## 处理链路
 
