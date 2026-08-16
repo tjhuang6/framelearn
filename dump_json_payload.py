@@ -62,5 +62,13 @@ pic_index = _format_picture_index(frames)
 instruction_text = STAGE1_PROMPT.format(chunk_text=pic_index, max_images=50)
 all_segments = [{"type": "text", "text": instruction_text}, *body]
 
-body_json = _build_openai_multimodal_body(all_segments, "Qwen/Qwen3-VL-8B-Instruct", max_tokens=8192)
+config = ProviderConfig(
+    base_url="https://api.siliconflow.cn/v1",
+    api_key="sk-placeholder",
+    model="Qwen/Qwen3-VL-8B-Instruct",
+)
+url, headers, body_json = _build_openai_request_interleaved(config, all_segments, max_tokens=8192)
+print("URL:", url)
+print("HEADERS:", json.dumps(headers, indent=2))
+print("BODY:")
 print(json.dumps(body_json, indent=2, ensure_ascii=False))
