@@ -10,12 +10,14 @@
 # 统一使用 API 模式（直接调用 LLM API）
 text_mode = "api"
 
-# 文本模型 provider（从 PROVIDERS 注册表里选）
-provider = "deepseek"
+# 文本模型 provider
+provider = "claude"
 
-# 文本模型 ID（必须）
-# deepseek-v4-flash 是推理模型，适合命令解析这类短分类任务
-model = "deepseek-v4-flash"
+# 文本模型
+model = "MiniMax-M3"
+
+# 自定义 endpoint（Anthropic-compatible 代理）
+base_url = "https://api.minimaxi.com/anthropic"
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -40,7 +42,7 @@ vision_agent_max_retries = 5
 # ═══════════════════════════════════════════════════════════════════
 
 [privacy]
-# 隐私提示（每次任务前显示实际使用的外部服务）
+# 每次任务前显示实际使用的外部服务
 privacy_hints = false
 
 
@@ -132,11 +134,11 @@ keep_temp_files = true
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 八、Agent 决策配置（LLM 决策模式，默认关闭以控制成本）[agent]
+# 八、Agent 决策配置[agent]
 # ═══════════════════════════════════════════════════════════════════
 
 [agent]
-# true = LLM 逐帧决策截哪里（精准但慢，每帧多 2 次 LLM 调用）
+# true = LLM 逐帧决策截哪里
 keyframe_selection = true
 
 # true = 生成后 LLM 评审质量，不合格自动重试（最多 3 次）
@@ -147,25 +149,7 @@ upgrade_model = ""   # 留空则不升级，例如 "qwen3-vl-32b-instruct"
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 九、文档生成配置 [doc_generation]
-# ═══════════════════════════════════════════════════════════════════
-
-[doc_generation]
-# 文档生成模式：
-#   visual_script - 顺序图文讲稿（保留讲解顺序，不重排）
-#   notes         - 课堂笔记（bullet points）
-#   textbook      - 正式教材（知识点重排）
-mode = "visual_script"
-
-# 分段时长（秒），用于长视频分段生成
-segment_duration = 90
-
-# 每段最多关键帧数
-max_keyframes_per_segment = 10
-
-
-# ═══════════════════════════════════════════════════════════════════
-# 十、分块 LLM 文档生成配置（chunked-llm-doc-gen）
+# 九、分块 LLM 文档生成配置（chunked-llm-doc-gen）
 # ═══════════════════════════════════════════════════════════════════
 
 [chunking]
@@ -179,7 +163,7 @@ max_images_per_chunk = 50
 concurrency = 5
 
 [text_clean]
-# 文本 LLM 清洗口水词时的硬下限词表（即使 LLM 改了也要保证这些被删）
+# 文本 LLM 清洗口水词时的硬下限词表
 filler_words = [
     "那么",
     "就是说",
@@ -205,4 +189,4 @@ blog_filename = "blog.md"
 scene_threshold = 0.4
 
 # 启发式截帧：pHash 去重阈值（> 此值视为重复）
-similarity_threshold = 0.95
+similarity_threshold = 0.85
