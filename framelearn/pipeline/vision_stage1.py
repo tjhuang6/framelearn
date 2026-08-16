@@ -235,7 +235,7 @@ STAGE1_PROMPT = """你是视频字幕整理助手。会给你一份"已配图的
   "blog_markdown": "## 图像数据的基本构成与卷积操作\n\n图像本质上由 RGB 三通道构成，每通道对应一个二维矩阵……（合并所有段的博客叙述）",
   "selected_timestamps": [
     {{"srt_id": 1, "timestamp": 0.0, "needs_extract": false, "source_frame_path": "src/frame_00h00m00s000ms_interval_001.jpg", "reason": "内容匹配，时间点准确"}},
-    {{"srt_id": 3, "timestamp": 53.0, "needs_extract": false, "source_frame_path": "src/frame_00h02m30s000ms_interval_006.jpg", "reason": "内容匹配，时间点准确"}}
+    {{"srt_id": 3, "timestamp": 150.0, "needs_extract": false, "source_frame_path": "src/frame_00h02m30s000ms_interval_006.jpg", "reason": "内容匹配，时间点准确"}}
   ]
 }}
 ```
