@@ -276,6 +276,120 @@ def _build_openai_request(
     return url, headers, body
 
 
+def _build_openai_request_interleaved(
+    config: ProviderConfig,
+    segments: list[dict],
+    max_tokens: int = 8192,
+) -> tuple[str, dict, dict]:
+    """OpenAI-compatible request with text/image interleaved in a single
+    user message.
+
+    ``segments`` is a list of ``{"type": "text", "text": "..."}`` or
+    ``{"type": "image", "path": "..."}`` dicts. The model receives the
+    images in the same order they appear in ``segments`` and can
+    positionally pair each ``![picture N](path)`` markdown reference
+    with the N-th image in the content array.
+
+    Note: we deliberately do NOT inject `path` text into image_url
+    metadata because most providers (siliconflow, deepseek, etc.)
+    ignore extra fields — the model has to rely on positional order.
+    Caller is responsible for ordering ``segments`` so the markdown
+    `![](path)` order matches.
+    """
+    url = f"{config.base_url.rstrip('/')}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {config.api_key}",
+        "Content-Type": "application/json",
+    }
+    content: list = []
+    for seg in segments:
+        kind = seg.get("type")
+        if kind == "text":
+            content.append({"type": "text", "text": seg["text"]})
+        elif kind == "image":
+            b64, mime = encode_image(seg["path"])
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{b64}"},
+                }
+            )
+        else:
+            raise ValueError(f"Unknown segment type: {kind!r}")
+    body = {
+        "model": config.model,
+        "messages": [{"role": "user", "content": content}],
+        "temperature": 0.3,
+        "max_tokens": max_tokens,
+    }
+    return url, headers, body
+
+
+async def _dispatch_async_interleaved(
+    config: ProviderConfig,
+    segments: list[dict],
+    max_tokens: int,
+    timeout: int,
+) -> str:
+    """Async dispatch for interleaved text+image requests.
+
+    Only OpenAI-compatible providers are supported (siliconflow,
+    deepseek, kimi, openai, openrouter, zhipu). Google Gemini and
+    Anthropic Claude use different schemas — fall back to the legacy
+    "all text + trailing images" layout by concatenating text segments.
+    """
+    provider_def = PROVIDERS.get(config.provider, {})
+    provider_type = provider_def.get("type", "openai")
+
+    if provider_type != "openai":
+        # Fallback: concatenate text segments, append all images at end.
+        text = "\n\n".join(
+            seg["text"] for seg in segments if seg.get("type") == "text"
+        )
+        images = [seg["path"] for seg in segments if seg.get("type") == "image"]
+        return await _dispatch_async(config, text, images, max_tokens, timeout)
+
+    url, headers, body = _build_openai_request_interleaved(
+        config, segments, max_tokens
+    )
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.post(url, headers=headers, json=body)
+    if response.status_code != 200:
+        raise httpx.HTTPStatusError(
+            f"Provider '{config.provider}' returned {response.status_code}: {response.text}",
+            request=response.request,
+            response=response,
+        )
+    return _parse_openai_response(response.json())
+
+
+async def call_llm_async_interleaved(
+    segments: list[dict],
+    config: ProviderConfig,
+    max_tokens: int = 8192,
+    timeout: int = 600,
+) -> str:
+    """Call an OpenAI-compatible vision LLM with text/image interleaved.
+
+    Args:
+        segments: List of ``{"type": "text", "text": str}`` or
+            ``{"type": "image", "path": str}`` dicts, in the order the
+            model should see them.
+        config: Provider configuration.
+        max_tokens: Maximum tokens in response.
+        timeout: Per-request timeout in seconds.
+
+    Returns:
+        LLM response text.
+
+    Raises:
+        ValueError: If provider config is missing API key.
+        httpx.HTTPError: On network or HTTP errors.
+    """
+    _validate_api_key(config)
+    return await _dispatch_async_interleaved(config, segments, max_tokens, timeout)
+
+
 def _build_gemini_request(
     config: ProviderConfig,
     prompt: str,
