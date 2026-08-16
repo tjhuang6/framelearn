@@ -2,7 +2,7 @@
 
 [中文](README.md) | English
 
-FrameLearn converts local programming tutorial videos into Markdown learning material with timestamped keyframes. The current implementation covers audio extraction, ASR, subtitle cleaning, anchored blog generation: text LLM writes the blog and frame anchors, FFmpeg supplies candidate frames, and the vision model validates frames before assembly, and general-purpose Q&A through the text API.
+FrameLearn converts local programming tutorial videos into Markdown learning material with timestamped keyframes. The current implementation covers audio extraction, ASR, the anchored blog pipeline (text LLM writes blog prose and frame anchors, FFmpeg supplies candidate frames, and the vision model validates frames before assembly), dual Markdown output, and general-purpose Q&A through the text API.
 
 ## Current capabilities
 
@@ -12,7 +12,7 @@ FrameLearn converts local programming tutorial videos into Markdown learning mat
   - Aliyun DashScope for chunked long-audio transcription, OSS upload, async polling, checkpoints, and SRT timestamps.
   - SiliconFlow SenseVoice for simpler transcription without timestamps.
 - Accepts an existing `.txt`, `.srt`, or `.vtt` file through `--subtitle` to skip ASR.
-- **Chunked LLM document generation**: SRT is split into 30-minute chunks (`[chunking] segment_minutes`); each chunk is sent once to the text LLM for filler removal, then a Qwen3-VL vision model runs two stages (text+images to pick timestamps, then image-only to drop redundant/noisy frames). A 30-min video uses ≤ 3 LLM calls regardless of length.
+- **Anchored blog pipeline**: SRT is split into 30-minute chunks, candidate frame markers are inserted into each chunk, the text LLM writes blog prose with `[[FRAME:id@timestamp]]` anchors, the program binds candidate frames or asks FFmpeg for precise captures, and the Qwen3-VL vision model only validates frames (retake / keep / caption / text_representation).
 - Always produces two Markdown files: `srt_picture.md` (preserves SRT structure, timestamps + embedded images) and `blog.md` (blog-style narrative + the same images).
 - Heuristic frame extraction (FFmpeg scene detection + pHash dedup) is summarized by SHA256 in the manifest, so a config change or a different frame set invalidates the cache automatically.
 - Routes `ask` through a text LLM API.
@@ -70,6 +70,7 @@ max_images_per_chunk = 50     # max frames kept per chunk
 concurrency = 5               # max in-flight LLM calls per stage
 
 [text_clean]
+# legacy chunked pipeline; the current blog-anchor pipeline does not call TextCleaner
 filler_words = ["那么", "就是说", "大家注意", "咱们", "啊", "嗯", "这个", "那个", "对吧"]
 
 [heuristic]
@@ -116,7 +117,7 @@ framelearn ask "Explain this project architecture"
 framelearn
 ```
 
-Traditional commands are `run`, `ask`, `summarize`, and `help`. Natural-language parsing uses `TEXT_PROVIDER` + `TEXT_API_KEY` when valid; otherwise it applies local rules and routes most non-video requests to `ask`.
+Traditional commands are `run`, `ask`, `summarize`, `session`, and `help`. Natural-language parsing uses `TEXT_PROVIDER` + `TEXT_API_KEY` when valid; otherwise it applies local rules and routes most non-video requests to `ask`.
 
 ## Actual output
 
@@ -128,14 +129,14 @@ output/<video-stem>/
 │   ├── subtitle.txt               # cleaned plain text
 │   ├── subtitle.srt               # when timestamped SRT is available
 │   ├── frame_00h01m30s.jpg        # heuristic keyframes (timestamped name)
-│   ├── extra_frame_xxx.jpg        # Stage1-captured extra frames
+│   ├── extra_frame_xxx.jpg        # precise anchor-pipeline captures
 │   ├── subtitle_manifest.json     # subtitle cache validation
 │   └── keyframe_manifest.json     # heuristic-frames digest (short-circuits ffmpeg on rerun)
 ├── temp/                          # DashScope chunks + intermediate ffmpeg frames
 └── run-report.json                # aggregated fallbacks / cache hits
 ```
 
-Existing subtitle, frame, and manifest files act as caches. Config changes (`[chunking]`, `[text_clean]`, `[doc_gen]`, `[heuristic]`) or a different frame set automatically invalidate the relevant cache. Remove the cache only when you intentionally want a full rerun.
+Existing subtitle, frame, and manifest files act as caches. Subtitle caching follows `[asr]`; keyframe caching follows `[heuristic]`. Remove the cache only when you intentionally want a full rerun.
 
 ## Pipeline
 
@@ -152,9 +153,94 @@ CLI / REPL
           → SRTChunker → insert frame markers
           → BlogGenerator → anchor validation / FFmpeg recapture
           → VisionFrameEvaluator → MDAssembler
-          → one-shot generation for small inputs
-          → SegmentSplitter + cache + retry + merge for large inputs
 ```
+
+## Anchored blog pipeline (0816 design)
+
+Core flow (from `framelearn_docs/0816.md`):
+
+```text
+video
+  │
+  ├── ASR ──→ raw SRT ────────────────────────┐
+  │                                            │
+  └── FFmpeg 启发式截帧 ───────────────────────┤
+                                               ▼
+                                    程序生成 annotated SRT-MD
+                                    （保留 raw SRT，不覆盖）
+                                               │
+                                               ▼
+                                          SRTChunker
+                                               │
+                                               ▼
+                                        BlogGenerator（文本模型）
+                                        输入：annotated SRT chunk
+                                        输出：
+                                        ├─ blog_markdown
+                                        │   （含 [[FRAME:id@timestamp]]）
+                                        └─ frame_requests
+                                               │
+                                               ▼
+                                       程序校验锚点
+                                       ├─ 已有帧：绑定真实路径
+                                       ├─ 无合适帧：FFmpeg 精准截帧
+                                       └─ 非法锚点：删除并报告
+                                               │
+                                               ▼
+                                   VisionFrameEvaluator（视频模型）
+                                   对每张候选帧输出：
+                                   ├─ anchor_id
+                                   ├─ retake / retake_timestamp
+                                   ├─ keep_image
+                                   ├─ content_type
+                                   ├─ caption
+                                   └─ text_representation
+                                               │
+                                    retake=true → 循环补截
+                                    retake=false → 进入拼装
+                                               │
+                                               ▼
+                                          MDAssembler
+                                               │
+                        ┌──────────────────────┼──────────────────────────────────────────┐
+                        ▼                      ▼                                          ▼
+              结构图/公式/表格          text_slide/terminal                       face/blank/transition
+              插图 + caption  插图 + caption（如有）+ text_representation（如有）         删除锚点
+```
+
+> The implementation uses the confirmed option A: chunk raw SRT first, then insert candidate frame markers into each chunk. The annotated SRT-MD above is what BlogGenerator sees; the raw SRT on disk is never overwritten.
+
+### VisionFrameEvaluator fields
+
+| Field | Meaning | Rule |
+|------|------|----------|
+| `anchor_id` | Anchor id referenced by `[[FRAME:id@timestamp]]` | Binds blog text to a frame |
+| `retake` | Ask for a new capture | When true, FFmpeg captures `retake_timestamp` and the vision model re-evaluates |
+| `retake_timestamp` | Precise retake time | Only used when `retake=true` |
+| `keep_image` | Keep the image | `true` keeps the image; `false` removes the whole anchor |
+| `content_type` | Visual content kind | `text_slide` / `terminal` / `code` / `diagram` / `formula` / `table` / `screenshot` / `face` / `blank` / `transition` / `other` |
+| `caption` | Image caption | Inserted below a kept image when non-empty |
+| `text_representation` | Text content of the image | Inserted below the caption when non-empty |
+
+### BlogGenerator anchor example
+
+```text
+卷积层负责提取局部特征。
+[[FRAME:a1@53.0]]
+
+实际工程中更常用 3x3 卷积。
+[[FRAME:a2@633.8]]
+```
+
+Anchor validation rules:
+
+```text
+Existing frame within frame_match_tolerance → reuse it
+Existing frame too far away → FFmpeg captures the precise timestamp
+No existing frame → FFmpeg captures the precise timestamp
+Invalid anchor → remove it and record it in run-report.json
+```
+
 
 ## Test
 
