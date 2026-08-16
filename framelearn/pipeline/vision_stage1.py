@@ -288,19 +288,28 @@ class VisionStage1:
         frames_in_chunk: list[CandidateFrame],
     ) -> VisionStage1Output:
         """Run Stage1 for one chunk. Returns a fallback on final failure."""
-        prompt = STAGE1_PROMPT.format(
-            chunk_text=_format_srt_md(chunk.segments, frames_in_chunk),
+        # Build interleaved text/image segments so the model sees each
+        # `![picture N](path)` reference adjacent to its image.
+        body_segments = _build_srt_md_segments(chunk.segments, frames_in_chunk)
+
+        # The instructions + task framing go in a leading text segment,
+        # with the SRT_MD content (interleaved text/image) appended.
+        # We still need to fill {chunk_text} in the template — use a
+        # compact reference to the picture index inside the leading
+        # instructions rather than duplicating the body.
+        srt_md_index = _format_picture_index(frames_in_chunk)
+        instruction_text = STAGE1_PROMPT.format(
+            chunk_text=srt_md_index,
             max_images=self.max_images,
         )
-        image_paths = [f.path for f in frames_in_chunk]
+        all_segments = [{"type": "text", "text": instruction_text}, *body_segments]
 
         last_error: Exception | None = None
         for attempt in range(self.max_retries + 1):
             try:
-                response = await call_llm_async(
-                    prompt,
+                response = await call_llm_async_interleaved(
+                    all_segments,
                     self.config,
-                    images=image_paths,
                     max_tokens=8192,
                     timeout=self.timeout,
                 )
