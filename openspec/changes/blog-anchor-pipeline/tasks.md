@@ -26,7 +26,7 @@
 ## 阶段 4：ChunkedDocGenerator 编排
 
 - [x] 方案 A：先切块，再向每个 chunk 插入候选帧标记
-- [x] 并行运行文本生成与启发式截帧（按依赖关系：截帧完成后插标记，文本调用与启发式截帧并行，文本调用等待 annotated chunk）
+- [x] 启发式截帧完成后插入候选帧标记，再运行 BlogGenerator（0816 最终方案 A：文本生成等待 annotated chunk）
 - [x] 锚点校验与补截
 - [x] 汇总决策与 srt_id 全局化
 - [x] 调用 MDAssembler 输出双 Markdown
