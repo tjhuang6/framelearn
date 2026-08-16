@@ -15,9 +15,12 @@ SYSTEM_PROMPT = """
 
 支持的命令格式：
 1. run <视频URL或本地路径>
-   - 在线视频：下载并生成图文教材
+   - 在线视频：下载并生成图文教材（支持 Bilibili、YouTube、抖音、快手）
    - 本地视频：直接处理本地视频文件
    - URL 示例：run https://bilibili.com/video/BV1xx...
+   - URL 示例：run https://youtube.com/watch?v=xxx
+   - URL 示例：run https://v.douyin.com/xxxx/
+   - URL 示例：run https://v.kuaishou.com/xxxx
    - 本地示例：run /Users/iwill/Downloads/tutorial.mp4
 
 2. ask <问题或任务>
@@ -246,6 +249,10 @@ class CommandParser:
             "youtube",
             "bilibili",
             "b站",
+            "抖音",
+            "douyin",
+            "快手",
+            "kuaishou",
             "教程",
             "转成文档",
             "生成教材",
@@ -273,7 +280,7 @@ class CommandParser:
 
         # Extract URL and strip trailing Chinese/English punctuation that
         # may have been glued to the URL by the user's sentence.
-        m = re.search(r"https?://\S+", text)
+        m = re.search(r"https?://[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+", text)
         if m:
             return m.group(0).rstrip("，。！？；：、）】》\"'")
         # Extract local file path (starts with / or ~)

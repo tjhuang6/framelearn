@@ -10,3 +10,4 @@ __pycache__/
 output/
 .ruff_cache
 .githooks
+downloads/

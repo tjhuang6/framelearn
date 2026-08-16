@@ -112,6 +112,10 @@ def _default_config() -> dict[str, Any]:
             "image_quality": 85,
             "keep_temp_files": False,
         },
+        "download": {
+            "download_dir": "./downloads",
+            "proxy": "",
+        },
         "subtitle": {
             "remove_brackets": True,
             "merge_duplicates": True,

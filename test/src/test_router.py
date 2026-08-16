@@ -1,11 +1,10 @@
 """Unit tests for CommandRouter."""
 
-import os
-import pytest
 from unittest.mock import MagicMock, patch
 
-from framelearn.router import CommandRouter
+import pytest
 
+from framelearn.router import CommandRouter
 
 # ------------------------------------------------------------------
 # Helpers
@@ -54,21 +53,112 @@ class TestRunCommand:
         with pytest.raises(ValueError, match="无效的视频链接"):
             router.execute("run https://notsupported.com/video")
 
-    def test_valid_youtube_url_raises_not_available(self, capsys):
-        from framelearn.errors import FeatureNotAvailableError
-        router = make_router()
-        with pytest.raises(FeatureNotAvailableError):
-            router.execute("run https://youtube.com/watch?v=xxx")
-        out = capsys.readouterr().out
-        assert "手动下载" in out or "未实现" in out
+    def test_youtube_url_downloads_then_calls_pipeline(self, tmp_path, capsys):
+        video = tmp_path / "youtube-video.mp4"
+        video.write_bytes(b"\x00")
+        from framelearn.downloaders import DownloadedVideo
+        from framelearn.pipeline import PipelineResult
 
-    def test_valid_bilibili_url_raises_not_available(self, capsys):
-        from framelearn.errors import FeatureNotAvailableError
-        router = make_router()
-        with pytest.raises(FeatureNotAvailableError):
-            router.execute("run https://bilibili.com/video/BV1xx")
+        downloaded = DownloadedVideo(
+            video_path=video,
+            source_url="https://youtube.com/watch?v=abc12345678",
+            platform="youtube",
+            video_id="abc12345678",
+            title="Tutorial",
+        )
+        mock_result = PipelineResult(
+            output_dir=tmp_path,
+            srt_picture_path=tmp_path / "srt_picture.md",
+            blog_path=tmp_path / "blog.md",
+            keyframes=[],
+            subtitle_text="",
+            error=None,
+        )
+
+        with (
+            patch("framelearn.router.download_video", return_value=downloaded) as mock_download,
+            patch("framelearn.pipeline.VideoPipeline") as mock_cls,
+        ):
+            mock_instance = MagicMock()
+            mock_instance.run.return_value = mock_result
+            mock_cls.return_value = mock_instance
+
+            router = make_router()
+            router.execute("run https://youtube.com/watch?v=abc12345678")
+
+        mock_download.assert_called_once_with("https://youtube.com/watch?v=abc12345678")
         out = capsys.readouterr().out
-        assert "手动下载" in out or "未实现" in out
+        assert "Tutorial" in out
+        assert "输出目录" in out
+
+    def test_bilibili_url_downloads_then_calls_pipeline(self, tmp_path):
+        video = tmp_path / "BV1xx.mp4"
+        video.write_bytes(b"\x00")
+        from framelearn.downloaders import DownloadedVideo
+        from framelearn.pipeline import PipelineResult
+
+        downloaded = DownloadedVideo(
+            video_path=video,
+            source_url="https://bilibili.com/video/BV1xx",
+            platform="bilibili",
+            video_id="BV1xx",
+        )
+        mock_result = PipelineResult(
+            output_dir=tmp_path,
+            srt_picture_path=tmp_path / "srt_picture.md",
+            blog_path=tmp_path / "blog.md",
+            keyframes=[],
+            subtitle_text="",
+            error=None,
+        )
+
+        with (
+            patch("framelearn.router.download_video", return_value=downloaded) as mock_download,
+            patch("framelearn.pipeline.VideoPipeline") as mock_cls,
+        ):
+            mock_instance = MagicMock()
+            mock_instance.run.return_value = mock_result
+            mock_cls.return_value = mock_instance
+
+            router = make_router()
+            router.execute("run https://bilibili.com/video/BV1xx")
+
+        mock_download.assert_called_once_with("https://bilibili.com/video/BV1xx")
+
+    def test_douyin_share_text_is_normalized_before_download(self, tmp_path):
+        video = tmp_path / "douyin.mp4"
+        video.write_bytes(b"\x00")
+        from framelearn.downloaders import DownloadedVideo
+        from framelearn.pipeline import PipelineResult
+
+        downloaded = DownloadedVideo(
+            video_path=video,
+            source_url="https://v.douyin.com/abc/",
+            platform="douyin",
+            video_id="123",
+        )
+        mock_result = PipelineResult(
+            output_dir=tmp_path,
+            srt_picture_path=tmp_path / "srt_picture.md",
+            blog_path=tmp_path / "blog.md",
+            keyframes=[],
+            subtitle_text="",
+            error=None,
+        )
+
+        with (
+            patch("framelearn.router.download_video", return_value=downloaded) as mock_download,
+            patch("framelearn.pipeline.VideoPipeline") as mock_cls,
+        ):
+            mock_instance = MagicMock()
+            mock_instance.run.return_value = mock_result
+            mock_cls.return_value = mock_instance
+            router = make_router()
+            router.execute(
+                "run 7.43 复制此链接 https://v.douyin.com/abc/ 打开Dou音搜索"
+            )
+
+        mock_download.assert_called_once_with("https://v.douyin.com/abc/")
 
     def test_nonexistent_file_raises(self):
         router = make_router()
@@ -171,6 +261,18 @@ class TestValidation:
 
     def test_bilibili_valid(self):
         assert self.router._is_valid_video_url("https://bilibili.com/video/BV1") is True
+
+    def test_bilibili_short_link_valid(self):
+        assert self.router._is_valid_video_url("https://b23.tv/abc") is True
+
+    def test_douyin_valid(self):
+        assert self.router._is_valid_video_url("https://v.douyin.com/abc/") is True
+
+    def test_douyin_video_page_valid(self):
+        assert self.router._is_valid_video_url("https://www.douyin.com/video/123") is True
+
+    def test_kuaishou_valid(self):
+        assert self.router._is_valid_video_url("https://v.kuaishou.com/abc") is True
 
     def test_random_url_invalid(self):
         assert self.router._is_valid_video_url("https://example.com/video") is False

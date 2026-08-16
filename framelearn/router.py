@@ -2,9 +2,9 @@
 
 import os
 from typing import Optional
-from urllib.parse import urlparse
 
-from framelearn.errors import FeatureNotAvailableError, PipelineExecutionError
+from framelearn.downloaders import download_video, extract_url, is_supported_video_url
+from framelearn.errors import DownloadError, PipelineExecutionError
 
 
 HELP_TEXT = """
@@ -23,6 +23,9 @@ FrameLearn - AI Agent for converting programming tutorial videos to text tutoria
 示例：
   # 自然语言（推荐）
   framelearn "帮我处理这个视频 https://bilibili.com/video/BV1xx..."
+  framelearn "帮我处理这个视频 https://youtube.com/watch?v=xxx"
+  framelearn "帮我处理这个抖音链接 https://v.douyin.com/xxxx/"
+  framelearn "帮我处理这个快手链接 https://v.kuaishou.com/xxxx"
   framelearn "处理本地视频 /path/to/video.mp4"
   framelearn "第 3 章讲了什么"
   framelearn "总结一下我学到的"
@@ -41,7 +44,7 @@ FrameLearn - AI Agent for converting programming tutorial videos to text tutoria
   framelearn session export <id>       导出会话为 JSON
 
 支持的视频格式：.mp4, .mkv, .avi, .mov, .flv, .wmv, .webm
-支持的视频来源：YouTube, Bilibili, 本地文件
+支持的视频来源：YouTube, Bilibili, 抖音, 快手, 本地文件
 
 数据隐私说明：docs/privacy-and-data-lifecycle.md
 """
@@ -109,33 +112,43 @@ class CommandRouter:
         flags = flags or {}
         subtitle_path = flags.get("subtitle")
 
-        if source.lower().startswith("http://") or source.lower().startswith("https://"):
-            if not self._is_valid_video_url(source):
-                raise ValueError("无效的视频链接，仅支持 YouTube 和 Bilibili")
-            print("提示：请先手动下载视频，然后使用本地文件路径")
-            raise FeatureNotAvailableError("在线视频下载功能尚未实现")
+        if subtitle_path and not os.path.isfile(subtitle_path):
+            raise ValueError(f"字幕文件不存在：{subtitle_path}")
+
+        url = extract_url(source)
+        if url:
+            if not self._is_valid_video_url(url):
+                raise ValueError(
+                    "无效的视频链接，目前支持 YouTube、Bilibili、抖音和快手"
+                )
+
+            downloaded = download_video(url)
+            pipeline_source = str(downloaded.video_path)
+            if not os.path.isfile(pipeline_source):
+                raise DownloadError(f"下载完成但本地视频文件不存在：{pipeline_source}")
+
+            if downloaded.title:
+                print(f"🎬 视频：{downloaded.title}")
         else:
-            if not os.path.isfile(source):
-                raise ValueError(f"文件不存在：{source}")
-            if not self._is_video_file(source):
+            pipeline_source = source
+            if not os.path.isfile(pipeline_source):
+                raise ValueError(f"文件不存在：{pipeline_source}")
+            if not self._is_video_file(pipeline_source):
                 raise ValueError("不支持的文件格式，仅支持常见视频格式")
 
-            if subtitle_path and not os.path.isfile(subtitle_path):
-                raise ValueError(f"字幕文件不存在：{subtitle_path}")
+        from framelearn.pipeline import VideoPipeline
 
-            from framelearn.pipeline import VideoPipeline
+        pipeline = VideoPipeline(pipeline_source, subtitle_path=subtitle_path)
+        result = pipeline.run()
 
-            pipeline = VideoPipeline(source, subtitle_path=subtitle_path)
-            result = pipeline.run()
+        if result.error:
+            raise PipelineExecutionError(result.error)
 
-            if result.error:
-                raise PipelineExecutionError(result.error)
-
-            print(f"\n📂 输出目录：{result.output_dir}")
-            print(f"📄 SRT 版讲义（含时间戳 + 配图）：{result.srt_picture_path}")
-            print(f"📝 博客版讲义：{result.blog_path}")
-            print(f"🖼️  关键帧数：{len(result.keyframes)}")
-            return 0
+        print(f"\n📂 输出目录：{result.output_dir}")
+        print(f"📄 SRT 版讲义（含时间戳 + 配图）：{result.srt_picture_path}")
+        print(f"📝 博客版讲义：{result.blog_path}")
+        print(f"🖼️  关键帧数：{len(result.keyframes)}")
+        return 0
 
     def _ask_question(self, question: str) -> int:
         if not question:
@@ -201,13 +214,7 @@ class CommandRouter:
     # ------------------------------------------------------------------
 
     def _is_valid_video_url(self, url: str) -> bool:
-        try:
-            host = (urlparse(url).hostname or "").lower()
-        except ValueError:
-            return False
-        if host in ("youtube.com", "www.youtube.com", "youtu.be"):
-            return True
-        return host == "bilibili.com" or host.endswith(".bilibili.com")
+        return is_supported_video_url(url)
 
     @staticmethod
     def _strip_outer_quotes(text: str) -> str:

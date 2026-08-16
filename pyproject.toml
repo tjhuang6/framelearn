@@ -10,6 +10,7 @@ dependencies = [
     "oss2==2.19.1",
     "pillow==12.3.0",
     "python-dotenv==1.0.0",
+    "yt-dlp>=2025.3.31",
 ]
 
 [project.scripts]

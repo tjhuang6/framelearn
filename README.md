@@ -2,11 +2,12 @@
 
 [English](README.en.md) | 中文
 
-FrameLearn 将本地编程教学视频转换为带关键帧的 Markdown 学习材料。当前实现覆盖音轨提取、ASR、博客锚点流水线（文本模型生成博客与帧锚点，FFmpeg 提供候选帧，视觉模型验图）、双 Markdown 输出，以及基于文本 API 的通用问答。
+FrameLearn 将本地及线上编程教学视频转换为带关键帧的 Markdown 学习材料。当前实现覆盖在线视频下载、音轨提取、ASR、博客锚点流水线（文本模型生成博客与帧锚点，FFmpeg 提供候选帧，视觉模型验图）、双 Markdown 输出，以及基于文本 API 的通用问答。
 
 ## 当前能力
 
 - 处理本地 `.mp4`、`.mkv`、`.avi`、`.mov`、`.flv`、`.wmv`、`.webm` 视频。
+- 直接处理线上视频 URL：YouTube、Bilibili（含 `b23.tv` 短链）、抖音（含分享口令）、快手（含分享口令）；下载器基于 yt-dlp 并移植/适配 BiliNote 的 B 站 412 patch、抖音访客 Cookie 流程与快手 GraphQL 流程。
 - 自动识别视频内音轨；若 B 站下载文件音视频分离，会在同目录查找同前缀的 `.mp3`、`.m4a` 或 `.aac`。
 - ASR 支持：
   - 阿里云百炼 DashScope：长音频分片、OSS 临时上传、异步转写、断点记录和 SRT 时间戳。
@@ -18,10 +19,21 @@ FrameLearn 将本地编程教学视频转换为带关键帧的 Markdown 学习�
 - 启发式截帧（ffmpeg 场景检测 + pHash 去重）结果会被 SHA256 摘要写入 manifest，配置或视频变化时自动重跑。
 - `ask` 通过文本 LLM API 回答通用问题。
 
+## 在线视频说明
+
+- 下载的视频缓存在 `[download].download_dir`（默认 `./downloads`），同平台同 ID 再次运行会直接复用。
+- YouTube 在国内网络通常需要代理：设置 `DOWNLOAD_PROXY` 或 `[download].proxy`；`HTTP_PROXY` / `HTTPS_PROXY` 也会自动识别。
+- 可选的平台 Cookie 配置在 `.env`（见模板）：
+  - `BILIBILI_COOKIE`：B 站 SESSDATA，提升画质/解锁字幕。
+  - `YOUTUBE_COOKIE`：YouTube cookies.txt 路径或整段 Cookie。
+  - `DOUYIN_COOKIE`：抖音风控时使用；未配置时会自动生成访客 `ttwid` / `msToken`。
+  - `KUAISHOU_COOKIE`：快手 GraphQL 触发验证码时通常必需，请复制浏览器完整 Cookie。
+
 ## 尚未实现或受限的能力
 
-- YouTube/Bilibili URL 会被识别和校验，但在线下载尚未实现；请先下载到本地。
+- 平台自带字幕尚未接入：在线视频仍会下载视频后走 FrameLearn 的 ASR 流程。
 - `ask` 当前不是“只检索已生成教材”的 RAG 问答；它是工作目录中的通用 API 对话。
+- 快手接口风控较严，无 Cookie 时可能无法解析；遇到验证码请配置 `KUAISHOU_COOKIE`。
 
 - 旧版 `agent_keyframe_selector.py` / `doc_generator.py`（`notes` / `visual_script` mode）已被分块流程替代，保留仅为向后兼容。
 
@@ -65,6 +77,10 @@ vision_model = "Qwen/Qwen3-VL-8B-Instruct"
 [asr]
 provider = "dashscope"
 model = "qwen-audio-3.0-asr-flash-filetrans"
+
+[download]
+download_dir = "./downloads"   # 在线视频缓存目录
+proxy = ""                     # 下载代理；留空则读 DOWNLOAD_PROXY/HTTP(S)_PROXY
 
 [chunking]
 segment_minutes = 10          # 每段视频时长（分钟），推荐 5-10
@@ -137,17 +153,22 @@ await vision_client.complete_interleaved_async([
 
 ## 使用
 
-## 使用
-
 ```bash
 # 本地视频
 framelearn run /absolute/path/tutorial.mp4
 
-# 使用已有字幕，跳过 ASR
+# 线上视频（自动下载到 ./downloads 后执行同一套流水线）
+framelearn run "https://www.bilibili.com/video/BV1xx..."
+framelearn run "https://youtube.com/watch?v=xxx"
+framelearn run "https://v.douyin.com/xxxx/"
+framelearn run "https://v.kuaishou.com/xxxx"
+
+# 使用已有字幕，跳过 ASR（对线上视频同样生效）
 framelearn run /absolute/path/tutorial.mp4 --subtitle /absolute/path/tutorial.srt
 
 # 自然语言入口
 framelearn "处理这个视频 /absolute/path/tutorial.mp4"
+framelearn "帮我处理这个 B 站视频 https://bilibili.com/video/BV1xx..."
 
 # 通用问答
 framelearn ask "解释一下这个项目的结构"

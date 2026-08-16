@@ -13,6 +13,14 @@ class FrameLearnError(Exception):
     """Base class for all FrameLearn domain errors."""
 
 
+class DownloadError(FrameLearnError):
+    """Raised when an online video cannot be downloaded.
+
+    This covers unsupported URLs, platform API failures, cookie / captcha
+    failures and missing output files.
+    """
+
+
 class PipelineExecutionError(FrameLearnError):
     """Raised when VideoPipeline.run() reports a business failure.
 
@@ -21,7 +29,4 @@ class PipelineExecutionError(FrameLearnError):
 
 
 class FeatureNotAvailableError(FrameLearnError):
-    """Raised when a requested run path is not yet implemented.
-
-    (e.g. downloading and processing an online video URL).
-    """
+    """Raised when a requested run path is not yet implemented."""

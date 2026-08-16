@@ -2,11 +2,12 @@
 
 [中文](README.md) | English
 
-FrameLearn converts local programming tutorial videos into Markdown learning material with timestamped keyframes. The current implementation covers audio extraction, ASR, the anchored blog pipeline (text LLM writes blog prose and frame anchors, FFmpeg supplies candidate frames, and the vision model validates frames before assembly), dual Markdown output, and general-purpose Q&A through the text API.
+FrameLearn converts local and online programming tutorial videos into Markdown learning material with timestamped keyframes. The current implementation covers online video downloading, audio extraction, ASR, the anchored blog pipeline (text LLM writes blog prose and frame anchors, FFmpeg supplies candidate frames, and the vision model validates frames before assembly), dual Markdown output, and general-purpose Q&A through the text API.
 
 ## Current capabilities
 
 - Processes local `.mp4`, `.mkv`, `.avi`, `.mov`, `.flv`, `.wmv`, and `.webm` files.
+- Downloads online videos from YouTube, Bilibili (including `b23.tv`), Douyin, and Kuaishou. Downloaders are yt-dlp based with BiliNote-adapted Bilibili dm_img patch, Douyin visitor-cookie, and Kuaishou GraphQL flows.
 - Uses the video's audio stream or finds a companion `.mp3`, `.m4a`, or `.aac` file for split Bilibili downloads.
 - Supports two ASR backends:
   - Aliyun DashScope for chunked long-audio transcription, OSS upload, async polling, checkpoints, and SRT timestamps.
@@ -18,9 +19,16 @@ FrameLearn converts local programming tutorial videos into Markdown learning mat
 - Heuristic frame extraction (FFmpeg scene detection + pHash dedup) is summarized by SHA256 in the manifest, so a config change or a different frame set invalidates the cache automatically.
 - Routes `ask` through a text LLM API.
 
+## Online video notes
+
+- Downloaded videos are cached in `[download].download_dir` (default `./downloads`) and reused by platform video ID.
+- YouTube generally needs a proxy in mainland China: set `DOWNLOAD_PROXY`, `[download].proxy`, or standard `HTTP_PROXY` / `HTTPS_PROXY`.
+- Optional cookies in `.env`: `BILIBILI_COOKIE`, `YOUTUBE_COOKIE`, `DOUYIN_COOKIE`, `KUAISHOU_COOKIE`. Kuaishou often requires `KUAISHOU_COOKIE` when the GraphQL API returns a captcha challenge.
+
 ## Current limitations
 
-- YouTube and Bilibili URLs are validated, but downloading is not implemented. Download the video first.
+- Platform-provided subtitles are not used yet; online videos go through FrameLearn's ASR pipeline after download.
+- Kuaishou's anti-bot checks may block requests without `KUAISHOU_COOKIE`.
 - `summarize` only prints instructions for an external `/summarize-learning` skill.
 - `ask` is a general workspace conversation, not a tutorial-grounded RAG implementation.
 
@@ -65,6 +73,10 @@ vision_model = "Qwen/Qwen3-VL-8B-Instruct"
 provider = "dashscope"
 model = "qwen-audio-3.0-asr-flash-filetrans"
 
+[download]
+download_dir = "./downloads"   # online video cache
+proxy = ""                     # download proxy; falls back to DOWNLOAD_PROXY/HTTP(S)_PROXY
+
 [chunking]
 segment_minutes = 10          # video minutes per chunk; 5-10 recommended
 max_images_per_chunk = 20     # max candidate frames shown to the LLM per chunk
@@ -104,6 +116,12 @@ Text and vision providers can also be overridden with the `TEXT_*` / `VISION_*` 
 ```bash
 # Local video
 framelearn run /absolute/path/tutorial.mp4
+
+# Online video (downloaded to ./downloads, then runs the same pipeline)
+framelearn run "https://www.bilibili.com/video/BV1xx..."
+framelearn run "https://youtube.com/watch?v=xxx"
+framelearn run "https://v.douyin.com/xxxx/"
+framelearn run "https://v.kuaishou.com/xxxx"
 
 # Reuse an existing subtitle and skip ASR
 framelearn run /absolute/path/tutorial.mp4 --subtitle /absolute/path/tutorial.srt
