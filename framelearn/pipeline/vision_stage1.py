@@ -31,6 +31,7 @@ from framelearn.pipeline.srt_chunker import SRTChunk
 from framelearn.provider_adapter import (
     ProviderConfig,
     call_llm_async,
+    call_llm_async_interleaved,
     load_vision_config,
 )
 
