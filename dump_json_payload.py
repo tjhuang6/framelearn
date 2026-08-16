@@ -18,7 +18,7 @@ from framelearn.pipeline.vision_stage1 import (
     _format_picture_index,
 )
 from framelearn.pipeline.heuristic_frame_extractor import CandidateFrame
-from framelearn.provider_adapter import _build_openai_multimodal_body
+from framelearn.provider_adapter import _build_openai_request_interleaved, ProviderConfig
 
 
 # Real subtitle segments from output/分类任务_30min_2/src/subtitle.srt
