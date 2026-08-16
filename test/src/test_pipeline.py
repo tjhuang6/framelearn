@@ -138,7 +138,7 @@ class TestASRAdapter:
 
                 assert result.full_text == "转录文字"
                 assert result.has_timestamps is False
-                assert len(result.segments) == 1
+                assert result.segments == []
 
     def test_transcribe_file_not_found(self):
         with patch.dict('os.environ', {'SILICONFLOW_API_KEY': 'sk-valid'}):

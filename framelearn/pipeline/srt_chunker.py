@@ -62,13 +62,29 @@ class SRTChunker:
 
         Args:
             srt_segments: Iterable of objects with a ``start`` attribute
-                (seconds). Silently skips segments with ``start is None``
-                — those can't be aligned to a chunk boundary.
+                (seconds). Segments with ``start is None`` cannot be aligned
+                to a chunk boundary; they are skipped and recorded as a
+                fallback warning.
 
         Returns:
-            List of SRTChunk. Empty list when ``srt_segments`` is empty.
+            List of SRTChunk. Empty list when no timestamped segment remains.
         """
-        segments = [s for s in srt_segments if getattr(s, "start", None) is not None]
+        all_segments = list(srt_segments)
+        skipped = sum(
+            1 for s in all_segments if getattr(s, "start", None) is None
+        )
+        if skipped:
+            from framelearn.pipeline.run_report import get_reporter
+
+            get_reporter().record_fallback(
+                "srt_chunker.missing_start",
+                f"{skipped} 条字幕缺少 start 时间戳，已跳过",
+                detail={"skipped_count": skipped, "total_count": len(all_segments)},
+            )
+
+        segments = [
+            s for s in all_segments if getattr(s, "start", None) is not None
+        ]
         if not segments:
             return []
 
@@ -90,11 +106,16 @@ class SRTChunker:
                 current_segments
                 and seg.start - chunk_start >= self.segment_seconds
             ):
+                last = current_segments[-1]
                 chunks.append(
                     SRTChunk(
                         index=chunk_idx,
                         start_sec=chunk_start,
-                        end_sec=current_segments[-1].start,
+                        end_sec=(
+                            float(last.end)
+                            if getattr(last, "end", None) is not None
+                            else float(last.start)
+                        ),
                         segments=current_segments,
                     )
                 )
@@ -104,11 +125,16 @@ class SRTChunker:
             current_segments.append(seg)
 
         if current_segments:
+            last = current_segments[-1]
             chunks.append(
                 SRTChunk(
                     index=chunk_idx,
                     start_sec=chunk_start,
-                    end_sec=current_segments[-1].start,
+                    end_sec=(
+                        float(last.end)
+                        if getattr(last, "end", None) is not None
+                        else float(last.start)
+                    ),
                     segments=current_segments,
                 )
             )

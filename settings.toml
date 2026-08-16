@@ -16,7 +16,7 @@ provider = "claude"
 # 文本模型
 model = "MiniMax-M3"
 
-# 自定义 endpoint（Anthropic-compatible 代理）
+# 自定义 endpoint
 base_url = "https://api.minimaxi.com/anthropic"
 
 
@@ -80,7 +80,7 @@ overlap = 2                    # 第一版不做重叠
 poll_interval = 5              # 轮询间隔（秒）
 poll_timeout = 3600            # 单段最大等待时间（秒）
 vocabulary_id = ""             # 可选热词表 ID（留空不使用）
-keep_temp_files = true         # true 时保留切片文件到 output/任务名/temp/，方便调试
+keep_temp_files = false        # true 时保留切片文件到 output/任务名/temp/，方便调试
 
 
 [asr.oss]
@@ -118,19 +118,20 @@ scene_threshold = 0.4
 
 # 关键帧去重阈值（0.0-1.0，pHash 相似度 > 此值视为重复帧）
 # 0.95 = 像素差异很小的图才去重；0.7 = 同一张幻灯片不同字号的也合并
+# 注意：新流水线实际使用 [heuristic]，此处保留为兼容旧配置。
 similarity_threshold = 0.95
 
 # 保底抽帧间隔（秒，即使无场景切换也定时抽一帧）
 fallback_interval = 30
 
-# 最大关键帧数量（避免超长视频生成过多图片）
+# 最大关键帧数量（旧流水线配置，新流水线使用 [heuristic].max_frames）
 max_keyframes = 100
 
 # 图片质量（1-100，JPEG 压缩质量）
 image_quality = 85
 
 # 是否保留临时文件（调试时可开启）
-keep_temp_files = true
+keep_temp_files = false
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -189,4 +190,7 @@ blog_filename = "blog.md"
 scene_threshold = 0.4
 
 # 启发式截帧：pHash 去重阈值（> 此值视为重复）
-similarity_threshold = 0.85
+similarity_threshold = 0.95
+
+# 启发式截帧：最大候选帧数（去重前上限）
+max_frames = 200

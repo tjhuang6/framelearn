@@ -23,19 +23,20 @@ class InputFileInfo:
     path: str
     size: int
     mtime: float
-    sha256: str  # First 16 chars for performance
+    sha256: str  # First 16 hex chars of the FULL file SHA-256
 
     @classmethod
     def from_path(cls, path: Path) -> "InputFileInfo":
         """Compute file info from path."""
         stat = path.stat()
-        
-        # Compute partial hash (first 1MB) for performance
+
+        # Hash the full file. Videos can be large, so stream in 1 MiB
+        # chunks instead of reading everything into memory.
         hasher = hashlib.sha256()
         with open(path, "rb") as f:
-            chunk = f.read(1024 * 1024)  # Read first 1MB
-            hasher.update(chunk)
-        
+            while chunk := f.read(1024 * 1024):
+                hasher.update(chunk)
+
         return cls(
             path=str(path.resolve()),
             size=stat.st_size,
@@ -77,11 +78,59 @@ class ConfigSnapshot:
     doc_gen_blog_filename: str = "blog.md"
     heuristic_scene_threshold: float = 0.4
     heuristic_similarity_threshold: float = 0.95
+    heuristic_max_frames: int = 200
 
     @classmethod
     def from_config(cls, config_get_fn, mode: str, asr_provider: str = "unknown", asr_model: str = "unknown") -> "ConfigSnapshot":
-        """Extract relevant config keys."""
-        # tuple() makes the filler-word list stable for hashing
+        """Extract the config keys that are relevant for ``mode``.
+
+        Mode-specific snapshots keep unrelated settings from invalidating
+        a cache. For example, changing ``blog_filename`` must not force a
+        new ASR run just because the subtitle manifest happened to include
+        every config key.
+        """
+        if mode == "subtitle":
+            return cls(
+                scene_threshold=0.0,
+                similarity_threshold=0.0,
+                fallback_interval=0,
+                max_keyframes=0,
+                doc_mode=mode,
+                segment_duration=0,
+                max_keyframes_per_segment=0,
+                vision_provider="",
+                vision_model="",
+                asr_provider=asr_provider,
+                asr_model=asr_model,
+                keyframe_selection=False,
+                quality_review=False,
+                heuristic_scene_threshold=0.0,
+                heuristic_similarity_threshold=0.0,
+                heuristic_max_frames=0,
+            )
+
+        if mode == "keyframe":
+            return cls(
+                scene_threshold=0.0,
+                similarity_threshold=0.0,
+                fallback_interval=0,
+                max_keyframes=0,
+                doc_mode=mode,
+                segment_duration=0,
+                max_keyframes_per_segment=0,
+                vision_provider="",
+                vision_model="",
+                asr_provider=asr_provider,
+                asr_model=asr_model,
+                keyframe_selection=False,
+                quality_review=False,
+                heuristic_scene_threshold=float(config_get_fn("heuristic.scene_threshold", 0.4)),
+                heuristic_similarity_threshold=float(config_get_fn("heuristic.similarity_threshold", 0.95)),
+                heuristic_max_frames=int(config_get_fn("heuristic.max_frames", 200)),
+            )
+
+        # Legacy per-segment doc modes keep the full snapshot so changing
+        # any generation-related setting invalidates their cache.
         filler = tuple(
             config_get_fn("text_clean.filler_words", []) or []
         )
@@ -107,6 +156,7 @@ class ConfigSnapshot:
             doc_gen_blog_filename=str(config_get_fn("doc_gen.blog_filename", "blog.md")),
             heuristic_scene_threshold=float(config_get_fn("heuristic.scene_threshold", 0.4)),
             heuristic_similarity_threshold=float(config_get_fn("heuristic.similarity_threshold", 0.95)),
+            heuristic_max_frames=int(config_get_fn("heuristic.max_frames", 200)),
         )
 
 
@@ -267,8 +317,10 @@ def compute_heuristic_frames_digest(frames) -> str:
             key = (str(f.path), float(f.timestamp_sec))
         elif isinstance(f, (list, tuple)) and len(f) >= 2:
             key = (str(f[0]), float(f[1]))
+        elif isinstance(f, (list, tuple)) and len(f) == 1:
+            key = (str(f[0]), 0.0)
         else:
-            key = (str(f),)
+            key = (str(f), 0.0)
         hasher.update(f"{key[0]}|{key[1]:.6f}\n".encode())
     return hasher.hexdigest()[:16]
 

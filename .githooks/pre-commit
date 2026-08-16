@@ -1,0 +1,5 @@
+#!/bin/sh
+# FrameLearn pre-commit hook:
+# 每次执行 git commit 前，自动把当前工作区所有编辑、新增、删除
+# （git add -A）纳入本次提交，避免漏掉文件。
+git add -A

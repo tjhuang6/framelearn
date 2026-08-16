@@ -19,15 +19,15 @@ class SiliconflowBackend:
         self.model = model
 
     def transcribe(self, audio_path: Path, max_retries: int = 3):
-        """Transcribe audio file. Returns (text, has_timestamps=False)."""
-        from framelearn.pipeline.asr_adapter import TranscriptResult, TranscriptSegment
+        """Transcribe audio file. Returns ``TranscriptResult`` without timestamps."""
+        from framelearn.pipeline.asr_adapter import TranscriptResult
 
         last_error = None
         for attempt in range(max_retries):
             try:
                 text = self._call_api(audio_path)
                 return TranscriptResult(
-                    segments=[TranscriptSegment(text=text)],
+                    segments=[],
                     full_text=text,
                     has_timestamps=False,
                     srt=None,

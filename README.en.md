@@ -2,7 +2,7 @@
 
 [中文](README.md) | English
 
-FrameLearn converts local programming tutorial videos into Markdown learning material with timestamped keyframes. The current implementation covers audio extraction, ASR, subtitle cleaning, chunked (30 min) LLM calls, heuristic + vision two-stage keyframe selection, dual Markdown output, and general-purpose Q&A through Codex app-server.
+FrameLearn converts local programming tutorial videos into Markdown learning material with timestamped keyframes. The current implementation covers audio extraction, ASR, subtitle cleaning, chunked (30 min) LLM calls, heuristic + vision two-stage keyframe selection, dual Markdown output, and general-purpose Q&A through the text API.
 
 ## Current capabilities
 
@@ -15,14 +15,14 @@ FrameLearn converts local programming tutorial videos into Markdown learning mat
 - **Chunked LLM document generation**: SRT is split into 30-minute chunks (`[chunking] segment_minutes`); each chunk is sent once to the text LLM for filler removal, then a Qwen3-VL vision model runs two stages (text+images to pick timestamps, then image-only to drop redundant/noisy frames). A 30-min video uses ≤ 3 LLM calls regardless of length.
 - Always produces two Markdown files: `srt_picture.md` (preserves SRT structure, timestamps + embedded images) and `blog.md` (blog-style narrative + the same images).
 - Heuristic frame extraction (FFmpeg scene detection + pHash dedup) is summarized by SHA256 in the manifest, so a config change or a different frame set invalidates the cache automatically.
-- Routes `ask` through Codex app-server or a compatible text API.
+- Routes `ask` through a text LLM API.
 
 ## Current limitations
 
 - YouTube and Bilibili URLs are validated, but downloading is not implemented. Download the video first.
 - `summarize` only prints instructions for an external `/summarize-learning` skill.
 - `ask` is a general workspace conversation, not a tutorial-grounded RAG implementation.
-- FrameLearn's current app-server turn sends text only. Use `runtime.vision_mode = "api"` when document generation must inspect image pixels.
+
 - The legacy `agent_keyframe_selector.py` and the `notes` / `visual_script` modes of `doc_generator.py` are superseded by the chunked flow and kept only for back-compat.
 
 ## Install
@@ -49,11 +49,16 @@ cp .env.example .env
 The repository's current `settings.toml` key sections:
 
 ```toml
-[runtime]
-text_mode = "appserver"
+[text]
+text_mode = "api"
+provider = "claude"
+model = "MiniMax-M3"
+base_url = "https://api.minimaxi.com/anthropic"
+
+[vision]
 vision_mode = "api"
 vision_provider = "siliconflow"
-vision_model = "Qwen/Qwen3.6-35B-A3B"
+vision_model = "Qwen/Qwen3-VL-8B-Instruct"
 
 [asr]
 provider = "dashscope"
@@ -86,7 +91,7 @@ OSS_ACCESS_KEY_SECRET=...
 SILICONFLOW_API_KEY=...
 ```
 
-`text_mode = "appserver"` also requires an installed and configured `codex` CLI. See [`settings.toml`](settings.toml) and [`.env.example`](.env.example) for all fields.
+Text and vision providers can also be overridden with the `TEXT_*` / `VISION_*` environment variables documented in [`.env.example`](.env.example).
 
 ## Run
 
@@ -139,8 +144,9 @@ CLI / REPL
       → SubtitleCleaner
       → FFmpegHelper
       → KeyframeDeduplicator
-      → optional AgentKeyframeSelector
-      → DocumentGenerator
+      → ChunkedDocGenerator
+          → SRTChunker → TextCleaner → HeuristicFrameExtractor
+          → VisionStage1 → VisionStage2 → MDAssembler
           → one-shot generation for small inputs
           → SegmentSplitter + cache + retry + merge for large inputs
 ```
@@ -157,7 +163,7 @@ uv run pytest
 - [Current architecture](docs/architecture.en.md)
 - [Pipeline implementation](docs/pipeline-overview.md)
 - [AntiVibe technical report (Chinese)](docs/antivibe-technical-report.md)
-- [Codex app-server guide (Chinese)](docs/codex-app-server-guide.md)
+- Documentation links will be restored after the current pipeline refactor.
 
 ## License
 

@@ -18,13 +18,13 @@ newly extracted) and decides which ones are worth keeping visually.
 from __future__ import annotations
 
 import asyncio
-import json
-import re
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
 from framelearn.config import get as config_get
 from framelearn.pipeline.heuristic_frame_extractor import CandidateFrame
+from framelearn.pipeline.llm_json import parse_bool, parse_json_object
 from framelearn.pipeline.run_report import get_reporter
 from framelearn.pipeline.srt_chunker import SRTChunk
 from framelearn.provider_adapter import (
@@ -390,20 +390,10 @@ def _format_picture_index(frames: list[CandidateFrame]) -> str:
 
 def _parse_stage1(raw: str, frames: list[CandidateFrame]) -> VisionStage1Output | None:
     """Parse LLM response into VisionStage1Output, or None on failure."""
-    if not raw:
+    data = parse_json_object(raw)
+    if data is None:
         return None
-    fenced = re.search(r"```(?:json)?\s*(.*?)```", raw, re.DOTALL)
-    candidate = fenced.group(1) if fenced else raw
-    try:
-        data = json.loads(candidate)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", candidate, re.DOTALL)
-        if not match:
-            return None
-        try:
-            data = json.loads(match.group(0))
-        except json.JSONDecodeError:
-            return None
+
     blog = data.get("blog_markdown")
     selected = data.get("selected_timestamps")
     if not isinstance(blog, str) or not isinstance(selected, list):
@@ -413,13 +403,18 @@ def _parse_stage1(raw: str, frames: list[CandidateFrame]) -> VisionStage1Output 
     parsed: list[SelectedTimestamp] = []
     for item in selected:
         if not isinstance(item, dict):
-            continue
+            return None
         try:
             srt_id = int(item["srt_id"])
             timestamp = float(item["timestamp"])
         except (KeyError, TypeError, ValueError):
-            continue
-        needs_extract = bool(item.get("needs_extract", False))
+            return None
+        if srt_id < 1 or not math.isfinite(timestamp):
+            return None
+
+        needs_extract = parse_bool(item.get("needs_extract", False), field="needs_extract")
+        if needs_extract is None:
+            return None
         src = item.get("source_frame_path")
         reason = str(item.get("reason", ""))
 
@@ -429,7 +424,6 @@ def _parse_stage1(raw: str, frames: list[CandidateFrame]) -> VisionStage1Output 
         #   needs_extract=false, src=null          → 删除（不输出，不进 Stage2 / MD）
         #   needs_extract=false, src=<unknown>     → 删除（幻觉路径，丢掉比误截更安全）
         if needs_extract:
-            src = None
             parsed.append(
                 SelectedTimestamp(
                     srt_id=srt_id,
@@ -455,7 +449,6 @@ def _parse_stage1(raw: str, frames: list[CandidateFrame]) -> VisionStage1Output 
                 "vision_stage1.frame_dropped",
                 f"srt_id={srt_id} 的启发式帧被删除（path={src!r}）",
             )
-            continue
 
     return VisionStage1Output(blog_markdown=blog, selected_timestamps=parsed)
 

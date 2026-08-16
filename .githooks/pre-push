@@ -1,0 +1,8 @@
+#!/bin/sh
+# FrameLearn pre-push hook:
+# 当前策略是只 commit、不 push。若确需推送，请明确使用
+#   git push --no-verify
+# 或联系维护者移除该 hook。
+echo "❌ FrameLearn 已禁用 git push（策略：只 commit，不 push）" >&2
+echo "   如确需推送，请使用：git push --no-verify" >&2
+exit 1

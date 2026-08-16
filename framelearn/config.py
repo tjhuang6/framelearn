@@ -80,16 +80,33 @@ def _default_config() -> dict[str, Any]:
     return {
         "text": {
             "text_mode": "api",
+            "provider": "deepseek",
+            "model": "deepseek-chat",
         },
         "vision": {
             "vision_mode": "api",
+            "vision_provider": "siliconflow",
+            "vision_model": "Qwen/Qwen3-VL-8B-Instruct",
+            "vision_agent_max_retries": 5,
         },
         "privacy": {
             "privacy_hints": False,
         },
+        "asr": {
+            "mode": "api",
+            "provider": "siliconflow",
+            "model": "FunAudioLLM/SenseVoiceSmall",
+            "language_hints": ["zh", "en"],
+            "chunk_duration": 1800,
+            "max_workers": 2,
+            "poll_interval": 5,
+            "poll_timeout": 3600,
+            "keep_temp_files": False,
+        },
         "video": {
             "output_dir": "./output",
-            "scene_threshold": 0.3,
+            "scene_threshold": 0.4,
+            "similarity_threshold": 0.95,
             "fallback_interval": 30,
             "max_keyframes": 100,
             "image_quality": 85,
@@ -102,6 +119,38 @@ def _default_config() -> dict[str, Any]:
         },
         "style": {
             "tone": "balanced",
-            "detail_level": "standard",
+            "detail_level": "detailed",
+        },
+        "agent": {
+            "keyframe_selection": True,
+            "quality_review": False,
+            "upgrade_model": "",
+        },
+        "chunking": {
+            "segment_minutes": 30,
+            "max_images_per_chunk": 50,
+            "concurrency": 5,
+        },
+        "text_clean": {
+            "filler_words": [
+                "那么",
+                "就是说",
+                "大家注意",
+                "咱们",
+                "啊",
+                "嗯",
+                "这个",
+                "那个",
+                "对吧",
+            ],
+        },
+        "doc_gen": {
+            "srt_filename": "srt_picture.md",
+            "blog_filename": "blog.md",
+        },
+        "heuristic": {
+            "scene_threshold": 0.4,
+            "similarity_threshold": 0.95,
+            "max_frames": 200,
         },
     }

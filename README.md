@@ -2,7 +2,7 @@
 
 [English](README.en.md) | 中文
 
-FrameLearn 将本地编程教学视频转换为带关键帧的 Markdown 学习材料。当前实现覆盖音轨提取、ASR、字幕清洗、分块（30 分钟）LLM 调用、启发式 + 视觉两阶段关键帧选择、双 Markdown 输出，以及基于 Codex app-server 的通用问答。
+FrameLearn 将本地编程教学视频转换为带关键帧的 Markdown 学习材料。当前实现覆盖音轨提取、ASR、字幕清洗、分块（30 分钟）LLM 调用、启发式 + 视觉两阶段关键帧选择、双 Markdown 输出，以及基于文本 API 的通用问答。
 
 ## 当前能力
 
@@ -15,13 +15,13 @@ FrameLearn 将本地编程教学视频转换为带关键帧的 Markdown 学习�
 - **分块 LLM 文档生成**：将 SRT 按 30 分钟切段（`[chunking] segment_minutes`），每段一次性发给文本 LLM 去口水词，再用 Qwen3-VL 视觉模型两阶段决策（先看图 + 文本挑时间戳，再回头筛掉重复/无意义帧）。30 分钟视频总 LLM 调用 ≤ 3 次/段数。
 - 每次运行固定生成两个 Markdown：`srt_picture.md`（保留 SRT 段结构、时间戳 + 配图）和 `blog.md`（博客式叙述 + 同样的配图）。
 - 启发式截帧（ffmpeg 场景检测 + pHash 去重）结果会被 SHA256 摘要写入 manifest，配置或视频变化时自动重跑。
-- `ask` 可通过 Codex app-server 或兼容 API 回答通用问题。
+- `ask` 通过文本 LLM API 回答通用问题。
 
 ## 尚未实现或受限的能力
 
 - YouTube/Bilibili URL 会被识别和校验，但在线下载尚未实现；请先下载到本地。
-- `ask` 当前不是“只检索已生成教材”的 RAG 问答；它是工作目录中的通用 Codex/API 对话。
-- 当前 FrameLearn 的 app-server `turn/start` 只发送文字。文档生成若要让模型看到关键帧，应使用 `runtime.vision_mode = "api"`。
+- `ask` 当前不是“只检索已生成教材”的 RAG 问答；它是工作目录中的通用 API 对话。
+
 - 旧版 `agent_keyframe_selector.py` / `doc_generator.py`（`notes` / `visual_script` mode）已被分块流程替代，保留仅为向后兼容。
 
 ## 安装
@@ -50,11 +50,16 @@ cp .env.example .env
 当前仓库 `settings.toml` 的关键段：
 
 ```toml
-[runtime]
-text_mode = "appserver"
+[text]
+text_mode = "api"
+provider = "claude"
+model = "MiniMax-M3"
+base_url = "https://api.minimaxi.com/anthropic"
+
+[vision]
 vision_mode = "api"
 vision_provider = "siliconflow"
-vision_model = "Qwen/Qwen3.6-35B-A3B"
+vision_model = "Qwen/Qwen3-VL-8B-Instruct"
 
 [asr]
 provider = "dashscope"
@@ -89,7 +94,7 @@ SILICONFLOW_API_KEY=...
 
 - DashScope 读取 `[asr]` 和 `[asr.oss]` 配置。
 - Vision API 的 provider/model 读取 `settings.toml`，密钥读取 `.env`。
-- `text_mode = "appserver"` 需要本机已安装并配置 `codex` CLI。
+- 文本与视觉 provider 也可通过 `.env` 中的 `TEXT_*` / `VISION_*` 环境变量覆盖。
 
 完整字段见 [`settings.toml`](settings.toml) 和 [`.env.example`](.env.example)。
 
@@ -151,10 +156,13 @@ CLI / REPL
       → SubtitleCleaner
       → FFmpegHelper 抽帧
       → KeyframeDeduplicator
-      → 可选 AgentKeyframeSelector
-      → DocumentGenerator
-          → 短内容单次生成
-          → 长内容 SegmentSplitter 分段、缓存、重试、合并
+      → ChunkedDocGenerator
+          → SRTChunker 按时长分块
+          → TextCleaner 并行清洗
+          → HeuristicFrameExtractor 抽帧
+          → VisionStage1 文本+图
+          → VisionStage2 逐帧 keep/discard
+          → MDAssembler 输出双 Markdown
 ```
 
 ## 测试
@@ -165,12 +173,7 @@ uv run pytest
 
 ## 文档
 
-- [文档索引与状态](docs/README.md)
-- [当前技术架构](docs/architecture.md)
-- [流水线实现说明](docs/pipeline-overview.md)
-- [AntiVibe 技术报告](mine/antivibe/antivibe-technical-report.md)
-- [Codex app-server 指南](docs/codex-app-server-guide.md)
-- [隐私与数据生命周期说明](docs/privacy-and-data-lifecycle.md) ⭐
+> 说明：历史文档链接暂未随当前重构更新，后续应补充架构、流水线与隐私生命周期文档。
 
 ## License
 

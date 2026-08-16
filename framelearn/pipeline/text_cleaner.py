@@ -8,12 +8,12 @@ the original chunk is returned so the rest of the pipeline can proceed.
 from __future__ import annotations
 
 import asyncio
-import json
-import re
+import copy
 from dataclasses import dataclass
 from typing import Iterable
 
 from framelearn.config import get as config_get
+from framelearn.pipeline.llm_json import parse_json_object
 from framelearn.pipeline.run_report import get_reporter
 from framelearn.pipeline.srt_chunker import SRTChunk
 from framelearn.provider_adapter import (
@@ -25,6 +25,8 @@ from framelearn.provider_adapter import (
 
 CLEAN_PROMPT_TEMPLATE = """你是字幕清洗助手，只删口水词，不重组句序，不删内容词。
 
+口水词清单（只处理这些词；清单为空时只做错别字和标点修正）：
+{filler_words}
 
 约束：
 - 保持每个 segment 的 id 和时间戳不变，ONLY 修改 text
@@ -59,57 +61,39 @@ def _format_chunk(segments: Iterable) -> str:
     return "\n".join(lines)
 
 
-def _filler_regex(filler_words: list[str]) -> re.Pattern:
-    """Build a regex that matches any filler word as a whole token."""
-    # Sort longest first so multi-char fillers are matched before their
-    # substrings (e.g. "就是说" before "就是说啊").
-    sorted_words = sorted(set(filler_words), key=len, reverse=True)
-    escaped = [re.escape(w) for w in sorted_words]
-    # \b boundary doesn't help for Chinese — use lookbehind/lookahead for
-    # non-CJK or start/end of string. Keep it simple: match filler words
-    # surrounded by Chinese chars or string edges.
-    return re.compile("|".join(escaped))
-
-
-def _strip_fillers_locally(text: str, pattern: re.Pattern) -> str:
+def _strip_fillers_locally(text: str, filler_words: list[str]) -> str:
     """Last-resort local strip — used as a fallback when the LLM is down."""
-    cleaned = pattern.sub("", text)
-    # Tidy double spaces / leading commas left behind by the removal.
-    cleaned = re.sub(r"\s{2,}", " ", cleaned)
-    cleaned = re.sub(r"^[,\s]+|[,\s]+$", "", cleaned)
+    cleaned = text or ""
+    for word in sorted(set(filler_words), key=len, reverse=True):
+        cleaned = cleaned.replace(word, "")
+    cleaned = " ".join(cleaned.split())
+    cleaned = cleaned.strip(" ,，。.!！?？;；:：")
     return cleaned
 
 
 def _parse_llm_response(raw: str, expected_count: int) -> list[dict] | None:
     """Try to extract a list of {id, text} dicts from the LLM response.
 
-    Returns None when parsing fails — caller should retry / fall back.
+    Returns None when parsing fails. Ids must be exactly 1..N in the same
+    order as the input; otherwise a reordered model response would silently
+    attach cleaned text to the wrong subtitle segment.
     """
-    if not raw:
+    data = parse_json_object(raw)
+    if data is None:
         return None
-    # Strip ```json fences if the model added them.
-    fenced = re.search(r"```(?:json)?\s*(.*?)```", raw, re.DOTALL)
-    candidate = fenced.group(1) if fenced else raw
-    try:
-        data = json.loads(candidate)
-    except json.JSONDecodeError:
-        # Try to find the JSON object inside the response.
-        match = re.search(r"\{.*\}", candidate, re.DOTALL)
-        if not match:
-            return None
-        try:
-            data = json.loads(match.group(0))
-        except json.JSONDecodeError:
-            return None
+
     segments = data.get("segments")
     if not isinstance(segments, list):
         return None
     if len(segments) != expected_count:
         return None
-    for item in segments:
+
+    for index, item in enumerate(segments, start=1):
         if not isinstance(item, dict):
             return None
-        if "id" not in item or "text" not in item:
+        if item.get("id") != index:
+            return None
+        if not isinstance(item.get("text"), str):
             return None
     return segments
 
@@ -137,9 +121,9 @@ class TextCleaner:
     ):
         self.config = config or load_text_config()
         self.filler_words = (
-            filler_words
+            list(filler_words)
             if filler_words is not None
-            else config_get("text_clean.filler_words", [])
+            else list(config_get("text_clean.filler_words", []))
         )
         self.concurrency = (
             concurrency
@@ -152,15 +136,15 @@ class TextCleaner:
         """Clean a single chunk. Returns original segments on final failure.
 
         The returned SRTChunk shares ``index``/``start_sec``/``end_sec``
-        with the input. Its ``segments`` are the input segments with
-        ``text`` replaced by the cleaned version (or the locally
-        regex-stripped version if the LLM fails AND we have a fallback).
+        with the input. Its segments are shallow copies with ``text``
+        replaced by the cleaned version (or the locally stripped version
+        when the LLM fails).
         """
         if not chunk.segments:
             return chunk
 
         prompt = CLEAN_PROMPT_TEMPLATE.format(
-            filler_words="、".join(self.filler_words),
+            filler_words="、".join(self.filler_words) or "（空）",
             chunk_text=_format_chunk(chunk.segments),
         )
 
@@ -173,14 +157,12 @@ class TextCleaner:
                 parsed = _parse_llm_response(response, len(chunk.segments))
                 if parsed is None:
                     raise ValueError("LLM response did not match expected schema")
-                # Build id → cleaned text map, preserving order.
                 cleaned_texts = [item["text"] for item in parsed]
                 new_segments = []
                 for seg, cleaned_text in zip(chunk.segments, cleaned_texts):
-                    # dataclasses.replace would be cleaner but the segment
-                    # may be a plain object — setattr keeps it generic.
-                    setattr(seg, "text", cleaned_text)
-                    new_segments.append(seg)
+                    new_seg = copy.copy(seg)
+                    new_seg.text = cleaned_text
+                    new_segments.append(new_seg)
                 return SRTChunk(
                     index=chunk.index,
                     start_sec=chunk.start_sec,
@@ -193,19 +175,21 @@ class TextCleaner:
                     # Exponential backoff: 1s, 2s, 4s …
                     await asyncio.sleep(2 ** attempt)
 
-        # All retries failed — fall back to local regex stripping.
-        pattern = _filler_regex(self.filler_words)
+        # All retries failed — fall back to local filler stripping.
+        new_segments = []
         for seg in chunk.segments:
-            setattr(seg, "text", _strip_fillers_locally(seg.text or "", pattern))
+            new_seg = copy.copy(seg)
+            new_seg.text = _strip_fillers_locally(seg.text or "", self.filler_words)
+            new_segments.append(new_seg)
         get_reporter().record_fallback(
             "text_cleaner.chunk_fallback",
-            f"chunk {chunk.index} 文本 LLM 失败（{last_error}），已用本地正则降级",
+            f"chunk {chunk.index} 文本 LLM 失败（{last_error}），已用本地规则降级",
         )
         return SRTChunk(
             index=chunk.index,
             start_sec=chunk.start_sec,
             end_sec=chunk.end_sec,
-            segments=chunk.segments,
+            segments=new_segments,
         )
 
     async def clean_all(self, chunks: list[SRTChunk]) -> list[SRTChunk]:

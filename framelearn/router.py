@@ -2,8 +2,8 @@
 
 import os
 from typing import Optional
+from urllib.parse import urlparse
 
-from framelearn.config import get as config_get
 from framelearn.errors import FeatureNotAvailableError, PipelineExecutionError
 
 
@@ -62,7 +62,7 @@ class CommandRouter:
         """
         return None
 
-    def execute(self, command: str, flags: dict = {}) -> int:
+    def execute(self, command: str, flags: Optional[dict] = None) -> int:
         """
         Execute a parsed command.
 
@@ -81,7 +81,9 @@ class CommandRouter:
         """
         parts = command.split(maxsplit=1)
         cmd = parts[0]
-        args = parts[1] if len(parts) > 1 else ""
+        args = self._strip_outer_quotes(parts[1] if len(parts) > 1 else "")
+        if flags is None:
+            flags = {}
 
         if cmd == "run":
             return self._run_pipeline(args, flags=flags)
@@ -100,13 +102,14 @@ class CommandRouter:
     # Command handlers
     # ------------------------------------------------------------------
 
-    def _run_pipeline(self, source: str, flags: dict = {}) -> int:
+    def _run_pipeline(self, source: str, flags: Optional[dict] = None) -> int:
         if not source:
             raise ValueError("缺少视频 URL 或文件路径")
 
+        flags = flags or {}
         subtitle_path = flags.get("subtitle")
 
-        if source.startswith("http"):
+        if source.lower().startswith("http://") or source.lower().startswith("https://"):
             if not self._is_valid_video_url(source):
                 raise ValueError("无效的视频链接，仅支持 YouTube 和 Bilibili")
             print("提示：请先手动下载视频，然后使用本地文件路径")
@@ -164,8 +167,7 @@ class CommandRouter:
         
         parts = args.split(maxsplit=1)
         if not parts:
-            print("❌ 缺少操作参数，可选：list, info, delete, clear, export")
-            return 0
+            raise ValueError("缺少操作参数，可选：list, info, delete, clear, export")
         
         operation = parts[0]
         operand = parts[1] if len(parts) > 1 else ""
@@ -176,23 +178,22 @@ class CommandRouter:
             show_info()
         elif operation == "delete":
             if not operand:
-                print("❌ 缺少会话 ID")
-                return 0
+                raise ValueError("缺少会话 ID")
             delete_session(operand)
         elif operation == "clear":
             confirm = operand.lower() == "--confirm"
             clear_all_sessions(confirm=confirm)
         elif operation == "export":
             if not operand:
-                print("❌ 缺少会话 ID")
-                return 0
+                raise ValueError("缺少会话 ID")
             session_parts = operand.split(maxsplit=1)
             session_id = session_parts[0]
             output_path = session_parts[1] if len(session_parts) > 1 else None
             export_session(session_id, output_path)
         else:
-            print(f"❌ 未知操作：{operation}")
-            print("可选操作：list, info, delete, clear, export")
+            raise ValueError(
+                f"未知操作：{operation}（可选：list, info, delete, clear, export）"
+            )
         return 0
 
     # ------------------------------------------------------------------
@@ -200,7 +201,20 @@ class CommandRouter:
     # ------------------------------------------------------------------
 
     def _is_valid_video_url(self, url: str) -> bool:
-        return "youtube.com" in url or "youtu.be" in url or "bilibili.com" in url
+        try:
+            host = (urlparse(url).hostname or "").lower()
+        except ValueError:
+            return False
+        if host in ("youtube.com", "www.youtube.com", "youtu.be"):
+            return True
+        return host == "bilibili.com" or host.endswith(".bilibili.com")
+
+    @staticmethod
+    def _strip_outer_quotes(text: str) -> str:
+        """Strip one pair of matching outer quotes (CLI ``run "URL"`` form)."""
+        if len(text) >= 2 and text[0] == text[-1] and text[0] in ('"', "'"):
+            return text[1:-1]
+        return text
 
     def _is_video_file(self, path: str) -> bool:
         video_exts = ['.mp4', '.mkv', '.avi', '.mov', '.flv', '.wmv', '.webm']

@@ -111,6 +111,10 @@ class CommandParser:
 
         return command
 
+    def is_traditional_command(self, text: str) -> bool:
+        """Public wrapper around :meth:`_is_traditional_command`."""
+        return self._is_traditional_command(text)
+
     def _is_traditional_command(self, text: str) -> bool:
         first_word = text.strip().split()[0] if text.strip() else ""
         return first_word in ["run", "ask", "summarize", "help", "session"]
@@ -134,12 +138,15 @@ class CommandParser:
         if provider and key_looks_real:
             try:
                 return self._parse_via_provider(text)
-            except (httpx.TimeoutException, httpx.NetworkError) as e:
-                # Provider is configured but unreachable — don't hard-fail
-                # the CLI. Drop to rule-based parsing so the user can still
-                # run their video / type a question.
+            except Exception as e:
+                # Provider is configured but unusable (network, 5xx, bad key,
+                # malformed response) — don't hard-fail the CLI. Drop to
+                # rule-based parsing so the user can still run their video /
+                # type a question.
                 if self.debug:
-                    print(f"[CommandParser] LLM unreachable ({e!r}), falling back to rules")
+                    print(
+                        f"[CommandParser] LLM parse failed ({e!r}), falling back to rules"
+                    )
                 return self._parse_via_rules(text)
 
         return self._parse_via_rules(text)
@@ -173,6 +180,19 @@ class CommandParser:
         for attempt in range(self.max_retries + 1):
             try:
                 return fn(prompt, max_tokens=300, timeout=self.timeout)
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                if not self._is_transient_http_error(e):
+                    raise
+                if attempt < self.max_retries:
+                    wait = 0.5 * (2 ** attempt)
+                    if self.debug:
+                        print(
+                            f"[CommandParser] retry {attempt + 1}/{self.max_retries} "
+                            f"after HTTP {e.response.status_code} ({wait:.1f}s)"
+                        )
+                    time.sleep(wait)
+                    continue
             except (httpx.TimeoutException, httpx.NetworkError) as e:
                 last_error = e
                 if attempt < self.max_retries:
@@ -180,12 +200,18 @@ class CommandParser:
                         print(
                             f"[CommandParser] retry {attempt + 1}/{self.max_retries} after {type(e).__name__}"
                         )
-                    time.sleep(0.5)
+                    time.sleep(0.5 * (2 ** attempt))
                     continue
         # All retries exhausted — re-raise so the caller can decide
         # whether to fall back (caller: _parse_with_llm).
         assert last_error is not None
         raise last_error
+
+    @staticmethod
+    def _is_transient_http_error(error: httpx.HTTPStatusError) -> bool:
+        """Return True for rate-limit / server-side HTTP errors."""
+        status = error.response.status_code
+        return status == 408 or status == 429 or status >= 500
 
     def _parse_via_rules(self, text: str) -> str:
         """Rule-based intent parser — no LLM needed.
@@ -245,12 +271,13 @@ class CommandParser:
     def _extract_video_source(text: str) -> str:
         import re
 
-        # Extract URL
+        # Extract URL and strip trailing Chinese/English punctuation that
+        # may have been glued to the URL by the user's sentence.
         m = re.search(r"https?://\S+", text)
         if m:
-            return m.group(0)
+            return m.group(0).rstrip("，。！？；：、）】》\"'")
         # Extract local file path (starts with / or ~)
         m = re.search(r"[/~]\S+\.(?:mp4|mkv|avi|mov|flv|wmv|webm)", text, re.IGNORECASE)
         if m:
-            return m.group(0)
+            return m.group(0).rstrip("，。！？；：、）】》\"'")
         return ""

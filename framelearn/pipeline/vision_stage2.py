@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 from dataclasses import dataclass
 from typing import Iterable
 
 from framelearn.pipeline.heuristic_frame_extractor import CandidateFrame
+from framelearn.pipeline.llm_json import parse_bool, parse_json_object
 from framelearn.pipeline.run_report import get_reporter
 from framelearn.pipeline.srt_chunker import SRTChunk
 from framelearn.provider_adapter import (
@@ -102,20 +102,10 @@ def _parse_stage2(
     raw: str, frames: list[CandidateFrame], srt_id_per_frame: list[int]
 ) -> list[FrameDecision] | None:
     """Parse LLM response into per-frame decisions, or None on failure."""
-    if not raw:
+    data = parse_json_object(raw)
+    if data is None:
         return None
-    fenced = re.search(r"```(?:json)?\s*(.*?)```", raw, re.DOTALL)
-    candidate = fenced.group(1) if fenced else raw
-    try:
-        data = json.loads(candidate)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", candidate, re.DOTALL)
-        if not match:
-            return None
-        try:
-            data = json.loads(match.group(0))
-        except json.JSONDecodeError:
-            return None
+
     decisions = data.get("decisions")
     if not isinstance(decisions, list):
         return None
@@ -131,7 +121,9 @@ def _parse_stage2(
         if not isinstance(item, dict):
             return None
         path = item.get("frame")
-        keep = bool(item.get("keep", False))
+        keep = parse_bool(item.get("keep", False), field="keep")
+        if keep is None:
+            return None
         reason = str(item.get("reason", ""))
         if path not in path_to_meta:
             return None

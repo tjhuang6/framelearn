@@ -120,53 +120,63 @@ class MDAssembler:
         all_decisions: list[FrameDecision],
         video_title: str = "视频讲义（博客版）",
         image_prefix: str = "src/",
+        chunk_ranges: list[tuple[int, int]] | None = None,
     ) -> str:
         """Build ``blog.md`` content.
 
-        Each chunk's blog markdown is rendered as a section. Image
-        references are appended to the chunk's section, grouped by
-        ``srt_id`` (we don't have a perfect segment↔paragraph mapping, so
-        they cluster at the end of the chunk they belong to).
+        Each chunk's blog markdown is rendered as a section. When
+        ``chunk_ranges`` is supplied (one ``(first_srt_id, last_srt_id)``
+        tuple per blog section), kept images are inserted at the end of the
+        section they belong to. Without ranges, the old all-images-at-end
+        layout is used as a fallback.
         """
-        # Group kept images by srt_id for ordering inside a chunk.
         images_by_srt: dict[int, list[str]] = defaultdict(list)
         for d in all_decisions:
             if d.keep:
                 images_by_srt[d.srt_id].append(d.frame_path)
 
-        # We need a per-chunk grouping. Use srt_id ranges:
-        # - chunk index k corresponds to segments with srt_id in some range.
-        # - We don't have explicit ranges here; instead, use the order of
-        #   all_blog_markdowns (one per chunk). We distribute decisions by
-        #   matching srt_id ranges inferred from the segments we already
-        #   saw in assemble_srt — but we don't have access to those here.
-        # Simpler approach: just dump all images in the last section. The
-        # Stage1 prompt already requested "图片放在对应段后"; for blog
-        # style we relax this to "放在 chunk 末尾" — keeps the assembler
-        # simple and the document readable.
+        has_ranges = (
+            chunk_ranges is not None
+            and len(chunk_ranges) == len(all_blog_markdowns)
+        )
 
         lines = [f"# {video_title}", ""]
-        for chunk_md in all_blog_markdowns:
+        for index, chunk_md in enumerate(all_blog_markdowns):
             lines.append(chunk_md.strip())
             lines.append("")
 
-        # Append all kept images at the end, in srt_id order so they
-        # roughly match the order of topics in the prose.
-        all_paths: list[tuple[int, str]] = []
-        for srt_id, paths in images_by_srt.items():
-            for p in paths:
-                all_paths.append((srt_id, p))
-        all_paths.sort(key=lambda x: x[0])
-
-        if all_paths:
-            lines.append("---")
+            if not has_ranges:
+                continue
+            start, end = chunk_ranges[index]
+            chunk_images: list[str] = []
+            for srt_id in range(start, end + 1):
+                for path in images_by_srt.get(srt_id, []):
+                    chunk_images.append(path)
+            if not chunk_images:
+                continue
+            lines.append("**本段配图**")
             lines.append("")
-            lines.append("## 配图")
-            lines.append("")
-            for _, path in all_paths:
+            for path in chunk_images:
                 filename = Path(path).name
                 lines.append(f"![图]({image_prefix}{filename})")
                 lines.append("")
+
+        if not has_ranges:
+            # Fallback: keep the previous behaviour (all images at the end).
+            all_paths: list[tuple[int, str]] = []
+            for srt_id, paths in images_by_srt.items():
+                for p in paths:
+                    all_paths.append((srt_id, p))
+            all_paths.sort(key=lambda x: x[0])
+            if all_paths:
+                lines.append("---")
+                lines.append("")
+                lines.append("## 配图")
+                lines.append("")
+                for _, path in all_paths:
+                    filename = Path(path).name
+                    lines.append(f"![图]({image_prefix}{filename})")
+                    lines.append("")
 
         return "\n".join(lines).rstrip() + "\n"
 
@@ -177,6 +187,7 @@ class MDAssembler:
         all_blog_markdowns: list[str],
         all_decisions: list[FrameDecision],
         video_title: str = "视频讲义",
+        chunk_ranges: list[tuple[int, int]] | None = None,
     ) -> tuple[Path, Path]:
         """Write both files to ``output_dir``. Returns their paths."""
         output_dir = Path(output_dir)
@@ -186,7 +197,10 @@ class MDAssembler:
             srt_segments, all_decisions, video_title=video_title
         )
         blog_content = self.assemble_blog(
-            all_blog_markdowns, all_decisions, video_title=video_title
+            all_blog_markdowns,
+            all_decisions,
+            video_title=video_title,
+            chunk_ranges=chunk_ranges,
         )
 
         srt_path = output_dir / self.srt_filename

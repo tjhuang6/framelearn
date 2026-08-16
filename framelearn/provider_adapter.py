@@ -127,81 +127,90 @@ def _resolve_base_url(provider_key: str, toml_key: str, label: str) -> str:
     return base_url
 
 
-def _resolve_api_key(provider_key: str) -> str:
-    """Read the API key for a provider from .env. No defaults — placeholder
-    strings are caught later by call_llm, but a missing key fails fast here."""
-    candidates = [
-        f"{provider_key.upper()}_API_KEY",
-        "TEXT_API_KEY",  # legacy
-        "VISION_API_KEY",  # legacy
-    ]
+def _resolve_api_key(provider_key: str, purpose: str) -> str:
+    """Read the API key for a provider and call purpose from .env.
+
+    ``purpose`` is ``"text"`` or ``"vision"``. Keeping the candidate lists
+    separate prevents a vision call from accidentally consuming
+    ``TEXT_API_KEY`` (or vice versa) when both are configured.
+    """
+    if purpose == "text":
+        candidates = [f"{provider_key.upper()}_API_KEY", "TEXT_API_KEY"]
+    elif provider_key == "siliconflow":
+        candidates = ["SILICONFLOW_API_KEY", "VISION_API_KEY"]
+    else:
+        candidates = [f"{provider_key.upper()}_API_KEY", "VISION_API_KEY"]
+
     for env_name in candidates:
         value = os.getenv(env_name, "")
         if value:
             return value
     raise ValueError(
-        f"Missing API key for provider '{provider_key}'. "
+        f"Missing API key for provider '{provider_key}' ({purpose}). "
         f"Set one of: {', '.join(candidates)} in .env"
     )
 
 
+def _first_env_value(*names: str) -> str | None:
+    """Return the first non-empty environment variable value."""
+    for name in names:
+        value = os.getenv(name, "")
+        if value.strip():
+            return value.strip()
+    return None
+
+
 def load_text_config() -> ProviderConfig:
-    """Load text model config from settings.toml.
+    """Load text model config from settings.toml, with .env overrides.
 
-    Required TOML keys (raises if missing):
-      [text]
-      provider = "<name>"
-      model    = "<model_id>"
-
-    Optional TOML keys:
-      [text]
-      base_url = "..."   # falls back to PROVIDERS[provider].base_url
-
-    API key is read from .env (DEEPSEEK_API_KEY / TEXT_API_KEY).
+    Environment overrides (matching the documented ``.env`` template):
+        TEXT_PROVIDER, TEXT_MODEL, TEXT_BASE_URL, TEXT_API_KEY
     """
-    provider_key = _required("text.provider", "text LLM provider")
+    provider_key = _first_env_value("TEXT_PROVIDER") or _required(
+        "text.provider", "text LLM provider"
+    )
     if provider_key not in PROVIDERS:
         raise ValueError(
             f"Unknown text.provider: '{provider_key}'. Choose from: {', '.join(PROVIDERS)}"
         )
+    model = _first_env_value("TEXT_MODEL") or _required("text.model", "text LLM model")
+    base_url = _first_env_value("TEXT_BASE_URL") or _resolve_base_url(
+        provider_key, "text.base_url", "text LLM base URL"
+    )
     return ProviderConfig(
         provider=provider_key,
-        api_key=_resolve_api_key(provider_key),
-        model=_required("text.model", "text LLM model"),
-        base_url=_resolve_base_url(provider_key, "text.base_url", "text LLM base URL"),
+        api_key=_resolve_api_key(provider_key, "text"),
+        model=model,
+        base_url=base_url,
     )
 
 
 def load_vision_config() -> ProviderConfig:
-    """Load vision model config from settings.toml.
+    """Load vision model config from settings.toml, with .env overrides.
 
-    Required TOML keys (raises if missing):
-      [vision]
-      vision_provider = "<name>"
-      vision_model    = "<model_id>"
-
-    (Keys keep the ``vision_`` prefix because cache_manifest.py and the
-    agent selectors already read them under that name.)
-
-    Optional TOML keys:
-      [vision]
-      vision_base_url = "..."   # falls back to PROVIDERS[provider].base_url
-
-    API key is read from .env (SILICONFLOW_API_KEY / VISION_API_KEY).
+    Environment overrides: VISION_PROVIDER, VISION_MODEL, VISION_BASE_URL.
+    SiliconFlow reads SILICONFLOW_API_KEY first; other providers read
+    ``<PROVIDER>_API_KEY`` then VISION_API_KEY.
     """
-    provider_key = _required("vision.vision_provider", "vision provider")
+    provider_key = _first_env_value("VISION_PROVIDER") or _required(
+        "vision.vision_provider", "vision provider"
+    )
     if provider_key not in PROVIDERS:
         raise ValueError(
             f"Unknown vision.vision_provider: '{provider_key}'. "
             f"Choose from: {', '.join(PROVIDERS)}"
         )
+    model = _first_env_value("VISION_MODEL") or _required(
+        "vision.vision_model", "vision model"
+    )
+    base_url = _first_env_value("VISION_BASE_URL") or _resolve_base_url(
+        provider_key, "vision.vision_base_url", "vision base URL"
+    )
     return ProviderConfig(
         provider=provider_key,
-        api_key=_resolve_api_key(provider_key),
-        model=_required("vision.vision_model", "vision model"),
-        base_url=_resolve_base_url(
-            provider_key, "vision.vision_base_url", "vision base URL"
-        ),
+        api_key=_resolve_api_key(provider_key, "vision"),
+        model=model,
+        base_url=base_url,
     )
 
 
@@ -648,15 +657,13 @@ def call_llm(
     max_tokens: int = 65536,
     timeout: int = 300,
 ) -> str:
-    """Sync LLM call. Thin wrapper that runs ``_dispatch_async`` in an event loop.
+    """Sync LLM call using the sync httpx path.
 
-    Retained for callers that can't be migrated to async (e.g. the CLI command
-    parser). For new code prefer ``await call_llm_async(...)``.
+    Safe to call from inside a running event loop as well as from plain
+    synchronous code. For new async code prefer ``await call_llm_async(...)``.
     """
     _validate_api_key(config)
-    return asyncio.run(
-        _dispatch_async(config, prompt, images, max_tokens, timeout)
-    )
+    return _dispatch_sync(config, prompt, images, max_tokens, timeout)
 
 
 async def call_llm_async(

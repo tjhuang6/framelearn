@@ -13,8 +13,8 @@ from framelearn.pipeline.asr_adapter import ASRAdapter, TranscriptSegment
 from framelearn.pipeline.cache_manifest import create_manifest, CacheManifest
 from framelearn.pipeline.ffmpeg_helper import FFmpegHelper
 from framelearn.pipeline.heuristic_frame_extractor import CandidateFrame
-from framelearn.pipeline.keyframe_dedup import KeyframeDeduplicator
 from framelearn.pipeline.run_report import RunReporter, get_reporter, set_reporter, reset_reporter
+from framelearn.pipeline.srt_parser import parse_srt_segments, parse_subtitle_file
 from framelearn.pipeline.subtitle_cleaner import SubtitleCleaner
 
 if TYPE_CHECKING:
@@ -44,6 +44,38 @@ def _parse_frame_timestamp(frame_path: Path) -> float:
     s = int(match.group("s"))
     ms = int(match.group("ms") or 0)
     return h * 3600 + m * 60 + s + ms / 1000.0
+
+
+def _synthesize_timed_segments(
+    text: str, duration_sec: float
+) -> list[TranscriptSegment]:
+    """Create timestamped segments for transcript text without timing data.
+
+    Splits by line and distributes the known media duration across the
+    lines proportionally to their character count. This is a best-effort
+    fallback for SiliconFlow ASR and plain ``.txt`` subtitle inputs; SRT /
+    DashScope inputs should always provide real segments.
+    """
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return []
+
+    if duration_sec <= 0:
+        duration_sec = max(4.5, len(lines) * 4.5)
+
+    weights = [max(1.0, float(len(line))) for line in lines]
+    total_weight = sum(weights)
+    starts: list[float] = [0.0]
+    for weight in weights[:-1]:
+        starts.append(starts[-1] + duration_sec * weight / total_weight)
+
+    segments: list[TranscriptSegment] = []
+    for i, (line, start) in enumerate(zip(lines, starts)):
+        end = starts[i + 1] if i + 1 < len(starts) else duration_sec
+        segments.append(
+            TranscriptSegment(text=line, start=start, end=max(start + 0.1, end))
+        )
+    return segments
 
 
 @dataclass
@@ -92,8 +124,6 @@ class VideoPipeline:
         """Execute the full pipeline."""
         from framelearn.privacy_tracker import PrivacyTracker, set_tracker, reset_tracker
         from framelearn.config import get as config_get
-        
-        print(f"📹 开始处理视频：{self.video_path.name}")
 
         # Initialize privacy tracker
         privacy_hints_enabled = config_get("privacy.privacy_hints", False)
@@ -135,7 +165,7 @@ class VideoPipeline:
                 blog_path=Path(),
                 keyframes=[],
                 subtitle_text="",
-                error="FFmpeg 未安装，请先安装：brew install ffmpeg",
+                error="FFmpeg/FFprobe 未安装，请先安装：brew install ffmpeg",
             )
 
         # Create output directories
@@ -151,15 +181,18 @@ class VideoPipeline:
             if self.subtitle_path is not None:
                 print(f"⏭️  使用已有字幕：{self.subtitle_path}")
                 from framelearn.pipeline.asr_adapter import TranscriptResult
-                raw_subtitle = self.subtitle_path.read_text(encoding="utf-8")
-                # Strip SRT/VTT formatting if needed — just keep plain text
-                if self.subtitle_path.suffix in (".srt", ".vtt"):
-                    raw_subtitle = SubtitleCleaner.strip_timestamps(raw_subtitle)
+
+                segments, full_text = parse_subtitle_file(self.subtitle_path)
+                is_timed = self.subtitle_path.suffix.lower() in (".srt", ".vtt")
                 transcript = TranscriptResult(
-                    segments=[],
-                    full_text=raw_subtitle,
-                    has_timestamps=self.subtitle_path.suffix in (".srt", ".vtt"),
-                    srt=self.subtitle_path.read_text(encoding="utf-8") if self.subtitle_path.suffix == ".srt" else None,
+                    segments=segments,
+                    full_text=full_text,
+                    has_timestamps=is_timed and bool(segments),
+                    srt=(
+                        self.subtitle_path.read_text(encoding="utf-8")
+                        if self.subtitle_path.suffix.lower() == ".srt"
+                        else None
+                    ),
                 )
             else:
                 # Check for cached subtitle with manifest validation
@@ -203,11 +236,12 @@ class VideoPipeline:
                         "命中字幕缓存，跳过 ASR",
                     )
                     from framelearn.pipeline.asr_adapter import TranscriptResult
+                    cached_srt_text = cached_srt.read_text(encoding="utf-8")
                     transcript = TranscriptResult(
-                        segments=[],
+                        segments=parse_srt_segments(cached_srt_text),
                         full_text=cached_txt.read_text(encoding="utf-8"),
                         has_timestamps=True,
-                        srt=cached_srt.read_text(encoding="utf-8"),
+                        srt=cached_srt_text,
                     )
                 else:
                     # Extract audio first (only needed for ASR)
@@ -261,6 +295,7 @@ class VideoPipeline:
             subtitle_path.write_text(cleaned_subtitle, encoding="utf-8")
 
             # Save SRT if available (dashscope has timestamps)
+            srt_path: Path | None = None
             if transcript.has_timestamps and transcript.srt:
                 srt_path = src_dir / "subtitle.srt"
                 srt_path.write_text(transcript.srt, encoding="utf-8")
@@ -314,8 +349,6 @@ class VideoPipeline:
                     )
                     pre_extracted_frames = None
 
-            print(f"✅ 字幕文件：{srt_path}")
-
             # Step 4-6: Hand off to the chunked doc generator.
             #
             # The new flow combines heuristic keyframe extraction + text
@@ -346,26 +379,24 @@ class VideoPipeline:
 
             # Pick the segment list for ChunkedDocGenerator. We prefer the
             # ASR transcript's segments (they have precise start/end times
-            # for chunking). If ASR didn't produce segments (e.g.
-            # siliconflow backend) we synthesize one segment per line of
-            # the cleaned subtitle so the chunker still has something to
-            # group — frame distribution will still work, just with
-            # equally-spaced synthetic timestamps.
-            segments_for_pipeline: list[TranscriptSegment] = list(transcript.segments)
+            # for chunking). If ASR didn't produce timestamped segments
+            # (e.g. siliconflow backend or a plain .txt subtitle), synthesize
+            # timestamped segments proportional to the media duration so the
+            # chunker still has something to group.
+            segments_for_pipeline: list[TranscriptSegment] = [
+                seg for seg in transcript.segments if seg.start is not None
+            ]
             if not segments_for_pipeline and cleaned_subtitle:
-                synthetic: list[TranscriptSegment] = []
-                for i, line in enumerate(cleaned_subtitle.splitlines()):
-                    line = line.strip()
-                    if not line:
-                        continue
-                    synthetic.append(
-                        TranscriptSegment(
-                            text=line,
-                            start=float(i) * 5.0,
-                            end=float(i) * 5.0 + 4.5,
-                        )
+                duration_sec = FFmpegHelper.get_duration(str(self.video_path))
+                segments_for_pipeline = _synthesize_timed_segments(
+                    cleaned_subtitle, duration_sec
+                )
+                if segments_for_pipeline:
+                    get_reporter().record_fallback(
+                        "video_pipeline.synthetic_segments",
+                        "字幕缺少时间戳，已按媒体时长合成近似分段",
+                        detail={"segment_count": len(segments_for_pipeline)},
                     )
-                segments_for_pipeline = synthetic
 
             from framelearn.pipeline.chunked_doc_generator import (
                 ChunkedDocGenerator,

@@ -135,6 +135,7 @@ class DashscopeBackend:
             checkpoint_path = temp_dir / "asr_checkpoint.json"
 
         chunks: list[AudioChunk] = []
+        oss = None
 
         try:
             # 1. Split (skip if chunks already exist)
@@ -147,6 +148,13 @@ class DashscopeBackend:
             if checkpoint:
                 done = sum(1 for c in checkpoint.values() if c.get("status") == "done")
                 print(f"♻️  发现断点记录，已完成 {done}/{len(chunks)} 段，继续上次进度...")
+
+            # Restore oss_key from checkpoint so a resumed run can clean up
+            # objects uploaded by the previous run.
+            for chunk in chunks:
+                entry = checkpoint.get(str(chunk.index), {})
+                if entry.get("oss_key"):
+                    chunk.oss_key = str(entry["oss_key"])
 
             # 3. Upload + submit (skip already submitted chunks)
             oss = OssClient()
@@ -175,7 +183,11 @@ class DashscopeBackend:
                         try:
                             chunk, task_id = future.result()
                             task_map[task_id] = chunk
-                            checkpoint[str(chunk.index)] = {"status": "submitted", "task_id": task_id}
+                            checkpoint[str(chunk.index)] = {
+                                "status": "submitted",
+                                "task_id": task_id,
+                                "oss_key": chunk.oss_key,
+                            }
                             self._save_checkpoint(checkpoint_path, checkpoint)
                             print(f"   ✅ 段 {chunk.index + 1}/{len(chunks)} 已提交")
                         except Exception as e:
@@ -203,7 +215,12 @@ class DashscopeBackend:
                 try:
                     raw = self._poll_task(task_id)
                     results.append((chunk, raw))
-                    checkpoint[key] = {"status": "done", "task_id": task_id, "result": raw}
+                    checkpoint[key] = {
+                        "status": "done",
+                        "task_id": task_id,
+                        "result": raw,
+                        "oss_key": chunk.oss_key,
+                    }
                     self._save_checkpoint(checkpoint_path, checkpoint)
                     print(f"   ✅ 段 {chunk.index + 1} 完成")
                 except Exception as e:
@@ -254,7 +271,7 @@ class DashscopeBackend:
             )
 
         finally:
-            self._cleanup(chunks, oss if 'oss' in dir() else None)
+            self._cleanup(chunks, oss)
             if keep_temp:
                 print(f"📁 临时切片文件保留在：{temp_dir}")
             else:
@@ -332,25 +349,40 @@ class DashscopeBackend:
             "input": {"file_urls": [signed_url]},
             "parameters": self._build_parameters(),
         }
-        resp = httpx.post(
-            f"{self.API_BASE}/services/audio/asr/transcription",
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-                "X-DashScope-Async": "enable",
-            },
-            json=payload,
-            timeout=30.0,
-        )
-        resp.raise_for_status()
-        body = resp.json()
-        task_id = body.get("output", {}).get("task_id")
-        if not task_id:
-            raise RuntimeError(
-                f"DashScope 响应中没有 task_id："
-                f"request_id={body.get('request_id')}, status={resp.status_code}"
-            )
-        return task_id
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                resp = httpx.post(
+                    f"{self.API_BASE}/services/audio/asr/transcription",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                        "X-DashScope-Async": "enable",
+                    },
+                    json=payload,
+                    timeout=30.0,
+                )
+                resp.raise_for_status()
+                body = resp.json()
+                task_id = body.get("output", {}).get("task_id")
+                if not task_id:
+                    raise RuntimeError(
+                        f"DashScope 响应中没有 task_id："
+                        f"request_id={body.get('request_id')}, status={resp.status_code}"
+                    )
+                return task_id
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                status = e.response.status_code
+                if status not in (408, 429) and status < 500:
+                    raise
+            except (httpx.TimeoutException, httpx.NetworkError) as e:
+                last_error = e
+            if attempt < 2:
+                wait = 1.5 * (2 ** attempt) + random.random()
+                print(f"   ⚠️  提交任务失败（{last_error}），{wait:.1f}s 后重试...")
+                time.sleep(wait)
+        raise RuntimeError(f"提交 DashScope 任务失败（重试 3 次）：{last_error}")
 
     # ── Polling ─────────────────────────────────────────────────
 
@@ -398,9 +430,25 @@ class DashscopeBackend:
         raise TimeoutError(f"任务 {task_id} 超时（{self.poll_timeout}s）")
 
     def _download_result(self, url: str) -> dict:
-        resp = httpx.get(url, timeout=60.0)
-        resp.raise_for_status()
-        return resp.json()
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                resp = httpx.get(url, timeout=60.0)
+                if resp.status_code == 429 or resp.status_code >= 500:
+                    resp.raise_for_status()
+                resp.raise_for_status()
+                return resp.json()
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                status = e.response.status_code
+                if status not in (408, 429) and status < 500:
+                    raise
+            except (httpx.TimeoutException, httpx.NetworkError) as e:
+                last_error = e
+            if attempt < 2:
+                wait = 2.0 * (2 ** attempt) + random.random()
+                time.sleep(wait)
+        raise RuntimeError(f"下载转写结果失败（重试 3 次）：{last_error}")
 
     # ── Merge ────────────────────────────────────────────────────
 

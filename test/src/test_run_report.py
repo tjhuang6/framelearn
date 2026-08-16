@@ -364,7 +364,7 @@ class TestVideoPipelineRunReportIntegration:
         ):
             result = pipeline.run()
 
-        assert result.error == "FFmpeg 未安装，请先安装：brew install ffmpeg"
+        assert result.error == "FFmpeg/FFprobe 未安装，请先安装：brew install ffmpeg"
         # No degradation events were recorded on this early-exit path, but
         # the field must exist and be a list either way.
         assert result.warnings == []
@@ -396,13 +396,13 @@ class TestVideoPipelineRunReportIntegration:
         ):
             result = pipeline.run()
 
-        assert result.error == "FFmpeg 未安装，请先安装：brew install ffmpeg"
+        assert result.error == "FFmpeg/FFprobe 未安装，请先安装：brew install ffmpeg"
         assert result.warnings == ["[test_stage] simulated degradation"]
 
         report_path = output_dir / "run-report.json"
         assert report_path.exists()
         data = json.loads(report_path.read_text(encoding="utf-8"))
         assert data["status"] == "error"
-        assert data["error"] == "FFmpeg 未安装，请先安装：brew install ffmpeg"
+        assert data["error"] == "FFmpeg/FFprobe 未安装，请先安装：brew install ffmpeg"
         assert data["summary"]["fallbacks"] == 1
         assert data["fallbacks"][0]["message"] == "[test_stage] simulated degradation"

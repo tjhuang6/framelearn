@@ -1,8 +1,8 @@
 """CLI entry point for FrameLearn."""
 
 import os
-import shutil
 import sys
+import traceback
 
 from framelearn.command_parser import CommandParser
 from framelearn.errors import FrameLearnError
@@ -15,25 +15,20 @@ FrameLearn — AI 编程教程学习助手
 """
 
 
-def _check_codex():
-    if not shutil.which("codex"):
-        print("⚠️  警告：未找到 codex CLI，ask 命令将无法使用")
-        print("   安装：npm install -g @openai/codex")
-        print()
-
-
 def _parse_flags(args: list[str]) -> tuple[str, dict]:
     """Extract --flag value pairs from args, return (remaining_input, flags).
 
     Supported flags:
         --subtitle <path>   Path to existing subtitle file (skip ASR)
-        --debug             Print full LLM prompts/responses for the parser
+        --debug             Print full LLM prompts/responses and tracebacks
     """
     flags: dict = {}
     remaining: list[str] = []
     i = 0
     while i < len(args):
-        if args[i] == "--subtitle" and i + 1 < len(args):
+        if args[i] == "--subtitle":
+            if i + 1 >= len(args):
+                raise ValueError("--subtitle 缺少路径参数")
             flags["subtitle"] = args[i + 1]
             i += 2
         elif args[i] == "--debug":
@@ -46,7 +41,10 @@ def _parse_flags(args: list[str]) -> tuple[str, dict]:
 
 
 def _run_once(
-    user_input: str, parser: CommandParser, router: CommandRouter, flags: dict = {}
+    user_input: str,
+    parser: CommandParser,
+    router: CommandRouter,
+    flags: dict | None = None,
 ) -> int:
     """Parse and execute a single input. Returns exit code.
 
@@ -54,15 +52,18 @@ def _run_once(
     failure via FrameLearnError) is mapped to a nonzero exit code so shell
     scripts, batch jobs, and CI can reliably detect failure.
     """
+    flags = flags or {}
     try:
         command = parser.parse(user_input)
-        if flags.get("debug") or not parser._is_traditional_command(user_input):
+        if flags.get("debug") or not parser.is_traditional_command(user_input):
             print(f"[→ {command}]")
     except ValueError as e:
         print(f"❌ {e}")
         return 1
     except Exception as e:
         print(f"❌ 解析失败：{e}")
+        if flags.get("debug"):
+            traceback.print_exc()
         return 1
 
     try:
@@ -75,13 +76,14 @@ def _run_once(
         return 1
     except Exception as e:
         print(f"❌ {e}")
+        if flags.get("debug"):
+            traceback.print_exc()
         return 1
 
 
 def _repl(workspace: str):
     """Interactive REPL mode."""
     print(_BANNER)
-    _check_codex()
 
     parser = CommandParser()
     router = CommandRouter(workspace=workspace)
@@ -116,8 +118,6 @@ def main():
     if len(sys.argv) < 2:
         _repl(workspace)
         return
-
-    _check_codex()
 
     # Extract --flag options before passing to parser
     user_input, flags = _parse_flags(sys.argv[1:])

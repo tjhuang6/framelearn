@@ -22,6 +22,8 @@ class FrameDistributor:
     """Group candidate frames by chunk, capping each chunk's count."""
 
     def __init__(self, max_per_chunk: int = 50):
+        if max_per_chunk <= 0:
+            raise ValueError(f"max_per_chunk must be > 0, got {max_per_chunk}")
         self.max_per_chunk = max_per_chunk
 
     def distribute(
@@ -75,6 +77,8 @@ def _evenly_subsample(
     """Pick ``k`` items evenly spaced through ``items`` (assumed sorted)."""
     if k <= 0 or not items:
         return []
+    if k == 1:
+        return [items[0]]
     if k >= len(items):
         return list(items)
     step = (len(items) - 1) / (k - 1)

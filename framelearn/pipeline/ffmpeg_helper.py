@@ -2,6 +2,7 @@
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -10,8 +11,28 @@ class FFmpegHelper:
 
     @staticmethod
     def check_installed() -> bool:
-        """Check if ffmpeg is available in PATH."""
-        return shutil.which("ffmpeg") is not None
+        """Check that both ffmpeg and ffprobe are available in PATH."""
+        return (
+            shutil.which("ffmpeg") is not None
+            and shutil.which("ffprobe") is not None
+        )
+
+    @staticmethod
+    def get_duration(media_path: str, fallback: float = 0.0) -> float:
+        """Return media duration in seconds via ffprobe.
+
+        Falls back to ``fallback`` when ffprobe is unavailable or the
+        duration cannot be parsed (callers can then synthesize timing).
+        """
+        try:
+            result = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", media_path],
+                capture_output=True, text=True, check=True, timeout=30,
+            )
+            return float(result.stdout.strip())
+        except (subprocess.CalledProcessError, ValueError, FileNotFoundError):
+            return fallback
 
     @staticmethod
     def has_audio_stream(video_path: str) -> bool:
@@ -20,7 +41,7 @@ class FFmpegHelper:
             ["ffprobe", "-v", "error", "-select_streams", "a",
              "-show_entries", "stream=codec_type", "-of", "default=nw=1",
              video_path],
-            capture_output=True, text=True,
+            capture_output=True, text=True, timeout=30,
         )
         return "audio" in result.stdout
 
@@ -74,10 +95,17 @@ class FFmpegHelper:
                     subprocess.run(
                         ["ffmpeg", "-i", str(companion),
                          "-acodec", "aac", "-ar", "16000", "-y", output_path],
-                        check=True, capture_output=True, text=True,
+                        check=True, capture_output=True, text=True, timeout=300,
                     )
                     return True
-                except subprocess.CalledProcessError:
+                except subprocess.CalledProcessError as e:
+                    print(
+                        f"❌ 伴随音频转换失败：{e.stderr.strip()[-2000:] if e.stderr else e}",
+                        file=sys.stderr,
+                    )
+                    return False
+                except subprocess.TimeoutExpired:
+                    print("❌ 伴随音频转换超时", file=sys.stderr)
                     return False
             else:
                 print("❌ 视频无音轨，且未找到伴随音频文件")
@@ -87,10 +115,17 @@ class FFmpegHelper:
             subprocess.run(
                 ["ffmpeg", "-i", video_path,
                  "-vn", "-acodec", "aac", "-ar", "16000", "-y", output_path],
-                check=True, capture_output=True, text=True,
+                check=True, capture_output=True, text=True, timeout=300,
             )
             return True
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
+            print(
+                f"❌ 音轨提取失败：{e.stderr.strip()[-2000:] if e.stderr else e}",
+                file=sys.stderr,
+            )
+            return False
+        except subprocess.TimeoutExpired:
+            print("❌ 音轨提取超时", file=sys.stderr)
             return False
 
     @staticmethod
@@ -121,10 +156,17 @@ class FFmpegHelper:
                 ["ffmpeg", "-ss", ts_str, "-i", video_path,
                  "-vframes", "1", "-vf", "scale=1280:-1",
                  "-q:v", "2", "-y", output_path],
-                check=True, capture_output=True,
+                check=True, capture_output=True, text=True, timeout=120,
             )
             return True
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
+            print(
+                f"❌ 截帧失败（{ts_str}）：{e.stderr.strip()[-1000:] if e.stderr else e}",
+                file=sys.stderr,
+            )
+            return False
+        except subprocess.TimeoutExpired:
+            print(f"❌ 截帧超时（{ts_str}）", file=sys.stderr)
             return False
 
     @staticmethod
@@ -164,7 +206,7 @@ class FFmpegHelper:
                  "-vf", f"select='gt(scene,{scene_threshold})',showinfo,scale=1280:-1",
                  "-vsync", "vfr", "-q:v", "2", "-y",
                  str(scene_dir / "frame_%04d.jpg")],
-                capture_output=True, text=True,
+                capture_output=True, text=True, timeout=600,
             )
             # Parse showinfo output for pts_time
             for line in result.stderr.splitlines():
@@ -172,19 +214,22 @@ class FFmpegHelper:
                 if match:
                     timestamp = float(match.group(1))
                     scene_frames.append(timestamp)
-        except subprocess.CalledProcessError:
-            pass
+        except subprocess.CalledProcessError as e:
+            print(
+                f"⚠️  场景检测失败，将只使用定时抽帧："
+                f"{e.stderr.strip()[-1000:] if e.stderr else e}",
+                file=sys.stderr,
+            )
+        except subprocess.TimeoutExpired:
+            print("⚠️  场景检测超时，将只使用定时抽帧", file=sys.stderr)
 
         # Fallback timing frames (known timestamps)
         fallback_frames = []
         try:
             # Get video duration first
-            duration_result = subprocess.run(
-                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                 "-of", "default=noprint_wrappers=1:nokey=1", video_path],
-                capture_output=True, text=True, check=True,
-            )
-            duration = float(duration_result.stdout.strip())
+            duration = FFmpegHelper.get_duration(video_path)
+            if duration <= 0:
+                raise ValueError("无法获取视频时长")
 
             timestamp = 0.0
             while timestamp < duration:
@@ -193,14 +238,23 @@ class FFmpegHelper:
 
             # Extract fallback frames at those timestamps
             for i, ts in enumerate(fallback_frames, 1):
-                subprocess.run(
-                    ["ffmpeg", "-ss", str(ts), "-i", video_path,
-                     "-vframes", "1", "-vf", "scale=1280:-1",
-                     "-q:v", "2", "-y",
-                     str(fallback_dir / f"fallback_{i:04d}.jpg")],
-                    capture_output=True,
-                )
-        except (subprocess.CalledProcessError, ValueError):
+                try:
+                    subprocess.run(
+                        ["ffmpeg", "-ss", str(ts), "-i", video_path,
+                         "-vframes", "1", "-vf", "scale=1280:-1",
+                         "-q:v", "2", "-y",
+                         str(fallback_dir / f"fallback_{i:04d}.jpg")],
+                        capture_output=True, text=True, timeout=120,
+                    )
+                except subprocess.CalledProcessError as e:
+                    print(
+                        f"⚠️  定时抽帧失败（{ts:.1f}s）："
+                        f"{e.stderr.strip()[-1000:] if e.stderr else e}",
+                        file=sys.stderr,
+                    )
+                except subprocess.TimeoutExpired:
+                    print(f"⚠️  定时抽帧超时（{ts:.1f}s）", file=sys.stderr)
+        except (ValueError, FileNotFoundError):
             pass
 
         # Merge and rename with timestamps (millisecond precision + source tag)
