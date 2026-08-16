@@ -25,13 +25,13 @@ from framelearn.provider_adapter import (
 
 CLEAN_PROMPT_TEMPLATE = """你是字幕清洗助手，只删口水词，不重组句序，不删内容词。
 
-口水词清单（务必删除）：
-{filler_words}
 
 约束：
 - 保持每个 segment 的 id 和时间戳不变，ONLY 修改 text
 - 不要拆分/合并 segment
 - 不要删除内容词（专业术语、名词等）
+- 可以更改text：把ASR没识别到的专业名词或者行业内既定用法更正。 
+- 可以删除音乐内容：如果你觉得某段text是背景音乐，或者掺杂了背景音乐，你可以把歌词删除
 - 如果一段全是口水词，返回 text 为空字符串
 
 输入 SRT（id\\tstart_sec\\tend_sec\\ttext 一行一段）：
