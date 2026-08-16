@@ -327,9 +327,11 @@ def _build_srt_md_segments(
     pic_counter = 0
     for i, text, start, end in seg_rows:
         # SRT-style timestamp header + the segment text + a blank line,
-        # matching the user's preferred markdown layout.
+        # matching the user's preferred markdown layout. The leading
+        # `[N]` is the srt_id — model must reference this in the output
+        # JSON's `srt_id` field, otherwise it has to guess.
         ts_header = _format_srt_timestamp(start, end)
-        out.append({"type": "text", "text": f"{ts_header}\n{text}\n"})
+        out.append({"type": "text", "text": f"[{i}] {ts_header}\n{text}\n"})
         for f in attached.get(i, []):
             pic_counter += 1
             # Marker first, image second. Marker carries the timestamp
