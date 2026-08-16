@@ -130,17 +130,25 @@ def _resolve_base_url(provider_key: str, toml_key: str, label: str) -> str:
 def _resolve_api_key(provider_key: str) -> str:
     """Read the API key for a provider from .env. No defaults — placeholder
     strings are caught later by call_llm, but a missing key fails fast here."""
-    # Try provider-specific env var first (DEEPSEEK_API_KEY, etc.), then
-    # the legacy generic names. For claude we also try ANTHROPIC_AUTH_TOKEN
-    # because some users (e.g. minimaxi proxy) run with that as the
-    # bearer token instead of X-Api-Key.
+    # For claude we ONLY accept ANTHROPIC_AUTH_TOKEN — the user's shell
+    # env holds the bearer token for the minimaxi proxy and we must not
+    # accidentally route through X-Api-Key (which points to a different,
+    # unfunded account). For other providers fall back to the standard
+    # provider-specific env var, then legacy generic names.
+    if provider_key == "claude":
+        token = os.getenv("ANTHROPIC_AUTH_TOKEN", "")
+        if not token:
+            raise ValueError(
+                "Missing ANTHROPIC_AUTH_TOKEN for provider 'claude'. "
+                "Set ANTHROPIC_AUTH_TOKEN in your shell environment "
+                "(matches the minimaxi proxy bearer key)."
+            )
+        return token
     candidates = [
         f"{provider_key.upper()}_API_KEY",
         "TEXT_API_KEY",  # legacy
         "VISION_API_KEY",  # legacy
     ]
-    if provider_key == "claude":
-        candidates.insert(0, "ANTHROPIC_AUTH_TOKEN")
     for env_name in candidates:
         value = os.getenv(env_name, "")
         if value:
