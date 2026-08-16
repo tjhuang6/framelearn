@@ -188,20 +188,13 @@ def _build_srt_md_segments(
     # the N-th image in the content array.
     out: list[dict] = []
     pic_counter = 0
-    for i, text, _ in seg_rows:
-        out.append({"type": "text", "text": f"{i}. {text}"})
+    for i, text, start, end in seg_rows:
+        # SRT-style timestamp header + the segment text + a blank line,
+        # matching the user's preferred markdown layout.
+        ts_header = _format_srt_timestamp(start, end)
+        out.append({"type": "text", "text": f"{ts_header}\n{text}\n"})
         for f in attached.get(i, []):
             pic_counter += 1
-            # Timestamp FIRST so the model reads "next image is at 150s"
-            # BEFORE seeing the image itself — OpenAI multimodal content
-            # has no per-image metadata, the only way to attach
-            # timestamp is via the immediately-preceding text segment.
-            out.append(
-                {
-                    "type": "text",
-                    "text": f"【接下来是 picture {pic_counter}，时间戳 {f.timestamp_sec:.1f}s，路径 {f.path}】",
-                }
-            )
             out.append({"type": "image", "path": f.path})
             out.append(
                 {
@@ -212,15 +205,25 @@ def _build_srt_md_segments(
     # Any frames we couldn't attach (no segments) get tacked on the end.
     for f in attached.get(0, []):
         pic_counter += 1
-        out.append(
-            {
-                "type": "text",
-                "text": f"【接下来是 picture {pic_counter}，时间戳 {f.timestamp_sec:.1f}s，路径 {f.path}】",
-            }
-        )
         out.append({"type": "image", "path": f.path})
         out.append({"type": "text", "text": f"![picture {pic_counter}]({f.path})"})
     return out
+
+
+def _format_srt_timestamp(start_sec: float, end_sec: float) -> str:
+    """Format a timestamp range in SRT style: ``HH:MM:SS,mmm``.
+
+    Mirrors the format used by the cleaned subtitle.srt file so the
+    Stage1 prompt reads like real SRT content.
+    """
+    def _fmt(sec: float) -> str:
+        h = int(sec // 3600)
+        m = int((sec % 3600) // 60)
+        s = sec - h * 3600 - m * 60
+        s_int = int(s)
+        ms = int(round((s - s_int) * 1000))
+        return f"{h:02d}:{m:02d}:{s_int:02d},{ms:03d}"
+    return f"{_fmt(start_sec)} --> {_fmt(end_sec)}"
 
 
 def _format_picture_index(frames: list[CandidateFrame]) -> str:
