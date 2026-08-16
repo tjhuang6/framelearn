@@ -35,19 +35,19 @@ from framelearn.provider_adapter import (
 )
 
 
-STAGE1_PROMPT = """你是视频字幕整理助手。会给你一份"已配图的 SRT markdown"——字幕段按时间顺序排好，每段后面可能跟着一张或多张该时间点的启发式截图（用 `![](path)` 标记）。
+STAGE1_PROMPT = """你是视频字幕整理助手。会给你一份"已配图的 SRT markdown"——字幕段按时间顺序排好，每段后面可能跟着一张或多张该时间点的启发式截图，**每张截图紧跟一行 markdown 标记** `![picture N](path)` 和时间戳，方便你把图和上下文配对（vision API 会按"图-标记-图-标记"的顺序发给你）。
 
 ## 任务
 
 请做三件事：
 
-1. **生成markdown**：合并 SRT 段为连贯的叙述段落，去掉时间戳和序号，使表达通畅。尽量不要出现第一人称。
+1. **生成博客 markdown**：合并所有字幕段为连贯的叙述段落，去掉时间戳和序号，使表达通畅。尽量不要出现第一人称。
 
-2. **决定每张启发式截图的去留 / 调整 / 重截 / 删除**：
-   - 内容对得上 + 时间点对 → 保留（needs_extract=false，source_frame_path 引用 SRT_MD 里出现过的图片路径）
-   - 时间点差 ±2 秒 → 调整 timestamp，source_frame_path 仍指向同一张图
-   - 内容真不行（黑屏、过渡帧、模糊）→ 重截（needs_extract=true，source_frame_path=null，给新 timestamp）
-   - 截屏多余,或者质量太差 -> 删除（needs_extract=false，source_frame_path=null）
+2. **决定每张 picture N 的去留**：
+   - 内容对得上 + 时间点对 → **保留**（needs_extract=false，source_frame_path 写成 markdown 里出现过的那个 `path`，srt_id 取最近的段号）
+   - 时间点差 ±2 秒 → **调整 timestamp**（source_frame_path 仍指向同一张图，timestamp 用更准的秒数）
+   - 内容真不行（黑屏、过渡帧、模糊）→ **重截**（needs_extract=true，source_frame_path=null，给新 timestamp）
+   - 截屏多余或质量太差 → **删除**（needs_extract=false，source_frame_path=null，从列表里去掉这张图）
 
 3. **新增截图**（可选）：启发式漏了老师提到的关键图（PPT / 代码 / 表格 / 屏幕），needs_extract=true + 新 timestamp。
 
