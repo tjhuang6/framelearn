@@ -162,24 +162,23 @@ def _build_srt_md_segments(
           ...
         ]
     """
-    # Materialize segments into (index, text, mid_sec).
-    seg_rows: list[tuple[int, str, float]] = []
+    # Materialize segments into (index, text, start_sec, end_sec).
+    seg_rows: list[tuple[int, str, float, float]] = []
     for i, seg in enumerate(segments, start=1):
         text = getattr(seg, "text", "") or ""
         start = float(getattr(seg, "start", 0.0) or 0.0)
         end = float(getattr(seg, "end", start) or start)
-        mid = (start + end) / 2.0
-        seg_rows.append((i, text, mid))
+        seg_rows.append((i, text, start, end))
 
     # Bucket frames by their nearest segment index (preserving input order).
-    attached: dict[int, list[CandidateFrame]] = {i: [] for i, _, _ in seg_rows}
+    attached: dict[int, list[CandidateFrame]] = {i: [] for i, _, _, _ in seg_rows}
     for f in frames:
         if not seg_rows:
             attached.setdefault(0, []).append(f)
             continue
         nearest_i = min(
             seg_rows,
-            key=lambda row: abs(row[2] - f.timestamp_sec),
+            key=lambda row: abs((row[2] + row[3]) / 2.0 - f.timestamp_sec),
         )[0]
         attached[nearest_i].append(f)
 
