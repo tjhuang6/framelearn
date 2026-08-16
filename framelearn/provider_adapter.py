@@ -426,10 +426,17 @@ def _build_claude_request(
     images: list[str] | None = None,
     max_tokens: int = 4096,
 ) -> tuple[str, dict, dict]:
-    """Build Anthropic Claude request."""
+    """Build Anthropic Claude request.
+
+    Note on auth: minimaxi (api.minimaxi.com/anthropic) routes requests
+    by the auth header — sending ``x-api-key`` makes it bill the
+    account behind that key (which may have no balance), while a bare
+    ``Authorization: Bearer`` falls through to a proxy account the SDK
+    knows about. We use Bearer only.
+    """
     url = f"{config.base_url.rstrip('/')}/v1/messages"
     headers = {
-        "x-api-key": config.api_key,
+        "Authorization": f"Bearer {config.api_key}",
         "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
     }
