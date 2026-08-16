@@ -12,8 +12,9 @@ FrameLearn 将本地编程教学视频转换为带关键帧的 Markdown 学习�
   - 阿里云百炼 DashScope：长音频分片、OSS 临时上传、异步转写、断点记录和 SRT 时间戳。
   - 硅基流动 SenseVoice：实现简单，但不返回时间戳。
 - 可通过 `--subtitle` 直接使用已有 `.txt`、`.srt` 或 `.vtt`，跳过 ASR。
-- **博客锚点流水线**：先按时长切段并插入启发式帧标记，文本 LLM 生成博客正文并输出 `[[FRAME:id@timestamp]]` 锚点；程序绑定候选帧或 FFmpeg 精准补截；Qwen3-VL 视觉模型只负责验图（retake/keep/caption/text_representation），最后程序拼装 `blog.md` 与 `srt_picture.md`。
-- 每次运行固定生成两个 Markdown：`srt_picture.md`（保留 SRT 段结构、时间戳 + 配图）和 `blog.md`（博客式叙述 + 同样的配图）。
+- **博客锚点流水线**：先按时长切段并插入启发式帧标记，文本 LLM 把字幕润色成保留老师语气、接近“边看视频边做笔记”的讲稿，并输出 `[[FRAME:id@timestamp]]` 锚点；程序绑定候选帧或 FFmpeg 精准补截；Qwen3-VL 视觉模型只负责验图（retake/keep/caption/text_representation），最后程序拼装 `blog.md` 与 `srt_picture.md`。
+- 长视频的每个 chunk 会并行处理，并发数由 `[chunking].concurrency` 控制。
+- 每次运行固定生成两个 Markdown：`srt_picture.md`（保留 SRT 段结构、时间戳 + 配图）和 `blog.md`（保留讲述人语气的完整图文讲稿 + 配图）。
 - 启发式截帧（ffmpeg 场景检测 + pHash 去重）结果会被 SHA256 摘要写入 manifest，配置或视频变化时自动重跑。
 - `ask` 通过文本 LLM API 回答通用问题。
 
@@ -66,9 +67,9 @@ provider = "dashscope"
 model = "qwen-audio-3.0-asr-flash-filetrans"
 
 [chunking]
-segment_minutes = 30          # 每段最长视频时长
-max_images_per_chunk = 50     # 单段最多保留的图片数
-concurrency = 5               # 段内并发 LLM 调用上限
+segment_minutes = 10          # 每段视频时长（分钟），推荐 5-10
+max_images_per_chunk = 20     # 单段最多给 LLM 看的候选帧数
+concurrency = 5               # 并行处理 chunk 的并发上限
 
 [text_clean]
 # 旧版分块流水线使用；当前 blog-anchor 流水线暂不调用 TextCleaner
@@ -81,7 +82,7 @@ max_frames = 200
 
 [doc_gen]
 srt_filename = "srt_picture.md"   # 保留 SRT 结构 + 配图
-blog_filename = "blog.md"         # 博客式叙述 + 同样的配图
+blog_filename = "blog.md"         # 保留老师语气的完整图文讲稿 + 同样的配图
 
 [blog_gen]
 frame_match_tolerance = 2.0       # 锚点时间戳与候选帧匹配容差（秒）
@@ -169,7 +170,7 @@ framelearn
 ```text
 output/<视频文件名>/
 ├── srt_picture.md                 # SRT 结构 + 时间戳 + 配图
-├── blog.md                        # 博客式叙述 + 同样的配图
+├── blog.md                        # 保留老师语气的完整图文讲稿 + 配图
 ├── src/
 │   ├── subtitle.txt               # 清洗后的纯文本
 │   ├── subtitle.srt               # ASR/输入提供 SRT 时存在
@@ -195,9 +196,9 @@ CLI / REPL
       → FFmpegHelper 抽帧
       → KeyframeDeduplicator
       → ChunkedDocGenerator
-          → SRTChunker 按时长分块
-          → 插入启发式帧标记
-          → BlogGenerator 文本生成 + 帧锚点
+          → SRTChunker 按时长分块（默认 10 分钟）
+          → 每个 chunk 并行：插入启发式帧标记
+          → BlogGenerator 润色转写 + 帧锚点
           → 程序校验锚点 / FFmpeg 补截
           → VisionFrameEvaluator 验图（retake/keep/caption）
           → MDAssembler 输出双 Markdown

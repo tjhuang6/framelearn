@@ -151,3 +151,29 @@ def test_resolve_new_capture_outside_tolerance_calls_ffmpeg(tmp_path, monkeypatc
     assert len(items) == 1
     assert items[0].timestamp == 54.0
     assert Path(items[0].frame_path).exists()
+
+
+def test_srt_chunker_accepts_fractional_minutes():
+    from framelearn.pipeline.srt_chunker import SRTChunker
+
+    chunker = SRTChunker(segment_minutes=5.5)
+    assert chunker.segment_minutes == 5.5
+    assert chunker.segment_seconds == 330.0
+
+
+def test_chunk_size_is_configurable(monkeypatch):
+    import framelearn.pipeline.chunked_doc_generator as module
+
+    monkeypatch.setattr(
+        module,
+        "config_get",
+        lambda key, default=None: {
+            "chunking.segment_minutes": 7.5,
+            "chunking.max_images_per_chunk": 18,
+            "chunking.concurrency": 3,
+        }.get(key, default),
+    )
+    generator = module.ChunkedDocGenerator()
+    assert generator.segment_minutes == 7.5
+    assert generator.max_images_per_chunk == 18
+    assert generator.concurrency == 3

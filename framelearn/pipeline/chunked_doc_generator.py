@@ -6,12 +6,11 @@ Flow (aligned with ``0816.md``, implementation option A):
 2. Extract heuristic frames (cached or fresh).
 3. Distribute frames to chunks and insert picture markers after the
    nearest subtitle segment (raw SRT is never modified).
-4. BlogGenerator (text model) writes blog prose and emits
-   ``[[FRAME:<anchor_id>@<timestamp>]]`` anchors + ``frame_requests``.
-5. Program validates anchors, binds real frames, and uses FFmpeg to make
-   precise captures when no suitable heuristic frame exists.
-6. VisionFrameEvaluator (vision model) validates each frame, with retakes.
-7. MDAssembler replaces anchors and writes ``blog.md`` / ``srt_picture.md``.
+4. Process every chunk concurrently (bounded by ``chunking.concurrency``):
+   BlogGenerator writes blog prose + ``[[FRAME:id@timestamp]]`` anchors,
+   the program resolves anchors / makes precise FFmpeg captures, then
+   VisionFrameEvaluator validates each frame with retakes.
+5. MDAssembler replaces anchors and writes ``blog.md`` / ``srt_picture.md``.
 """
 
 from __future__ import annotations
@@ -27,6 +26,7 @@ from framelearn.pipeline.blog_generator import (
     BlogGenerator,
     BlogGeneratorOutput,
     FrameRequest,
+    fallback_blog,
 )
 from framelearn.pipeline.frame_distributor import FrameDistributor
 from framelearn.pipeline.heuristic_frame_extractor import (
@@ -40,7 +40,17 @@ from framelearn.pipeline.vision_frame_evaluator import (
     AnchorFrame,
     FrameEvaluation,
     VisionFrameEvaluator,
+    _fallback_keep as vision_fallback_keep,
 )
+
+
+@dataclass
+class _ChunkPipelineResult:
+    """Intermediate result for one concurrently processed chunk."""
+
+    chunk_index: int
+    blog_output: BlogGeneratorOutput
+    evaluations: list[FrameEvaluation]
 
 
 @dataclass
@@ -117,19 +127,19 @@ class ChunkedDocGenerator:
 
     def __init__(
         self,
-        segment_minutes: int | None = None,
+        segment_minutes: float | None = None,
         max_images_per_chunk: int | None = None,
         concurrency: int | None = None,
     ):
         self.segment_minutes = (
-            segment_minutes
+            float(segment_minutes)
             if segment_minutes is not None
-            else int(config_get("chunking.segment_minutes", 30))
+            else float(config_get("chunking.segment_minutes", 10))
         )
         self.max_images_per_chunk = (
             max_images_per_chunk
             if max_images_per_chunk is not None
-            else int(config_get("chunking.max_images_per_chunk", 50))
+            else int(config_get("chunking.max_images_per_chunk", 20))
         )
         self.concurrency = (
             concurrency
@@ -160,7 +170,7 @@ class ChunkedDocGenerator:
 
         try:
             # 1. Chunk raw SRT first (option A).
-            print(f"切段（每段 {self.segment_minutes} 分钟）...")
+            print(f"切段（每段 {self.segment_minutes:g} 分钟）...")
             chunker = SRTChunker(segment_minutes=self.segment_minutes)
             chunks = chunker.chunk(srt_segments)
             chunks_total = len(chunks)
@@ -195,83 +205,110 @@ class ChunkedDocGenerator:
             distributor = FrameDistributor(max_per_chunk=self.max_images_per_chunk)
             frames_by_chunk = distributor.distribute(chunks, frames)
 
-            # 4. Text model: blog + anchors (concurrent chunks).
-            print("BlogGenerator 生成博客与帧锚点...")
+            # 4-6. Process every chunk end-to-end in parallel. The
+            # semaphore bounds the number of chunks in flight, so a 3-4
+            # hour video becomes e.g. 24×10min chunks with at most
+            # ``chunking.concurrency`` text/vision/ffmpeg workers active.
+            print(
+                f"并行处理 {chunks_total} 个 chunk（并发 {self.concurrency}）..."
+            )
             blog_generator = BlogGenerator()
+            evaluator = VisionFrameEvaluator()
             sem = asyncio.Semaphore(self.concurrency)
 
-            async def _run_blog(chunk: SRTChunk) -> BlogGeneratorOutput:
+            async def _process_chunk(chunk: SRTChunk) -> _ChunkPipelineResult:
+                chunk_index = chunk.index
+                chunk_frames = frames_by_chunk.get(chunk_index, [])
                 async with sem:
-                    output = await blog_generator.generate(
-                        chunk, frames_by_chunk.get(chunk.index, [])
-                    )
-                    return _globalize_chunk_anchors(chunk.index, output)
+                    # 4. Text model: faithful blog prose + frame anchors.
+                    try:
+                        output = await blog_generator.generate(chunk, chunk_frames)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:
+                        get_reporter().record_fallback(
+                            "chunked_doc.blog_generator_exception",
+                            (
+                                f"chunk {chunk_index} 文本生成异常（{e}），"
+                                "降级为原始字幕拼接"
+                            ),
+                            detail={"chunk_index": chunk_index},
+                        )
+                        output = fallback_blog(chunk)
 
-            blog_outputs = await asyncio.gather(
-                *(_run_blog(c) for c in chunks),
-                return_exceptions=False,
+                    output = _globalize_chunk_anchors(chunk_index, output)
+
+                    # 5. Validate anchors / bind frames. FFmpeg is
+                    # synchronous, so run it in a worker thread.
+                    try:
+                        eval_items = await asyncio.to_thread(
+                            self._resolve_chunk_anchors,
+                            chunk,
+                            output.frame_requests,
+                            chunk_frames,
+                            video_path,
+                            temp_frames,
+                            local_offset=1,
+                        )
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:
+                        get_reporter().record_fallback(
+                            "chunked_doc.anchor_resolution_failed",
+                            (
+                                f"chunk {chunk_index} 锚点绑定失败（{e}），"
+                                "已丢弃该 chunk 配图"
+                            ),
+                            detail={"chunk_index": chunk_index},
+                        )
+                        eval_items = []
+
+                    # 6. Vision model validates frames, including retakes.
+                    if not eval_items:
+                        evaluations: list[FrameEvaluation] = []
+                    else:
+                        try:
+                            evaluations = await evaluator.evaluate(
+                                eval_items, video_path, temp_frames
+                            )
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as e:
+                            get_reporter().record_fallback(
+                                "chunked_doc.vision_evaluator_exception",
+                                (
+                                    f"chunk {chunk_index} 视觉验图异常（{e}），"
+                                    f"保守保留 {len(eval_items)} 张候选帧"
+                                ),
+                                detail={"chunk_index": chunk_index},
+                            )
+                            evaluations = [
+                                vision_fallback_keep(item) for item in eval_items
+                            ]
+
+                    return _ChunkPipelineResult(
+                        chunk_index=chunk_index,
+                        blog_output=output,
+                        evaluations=evaluations,
+                    )
+
+            chunk_results = await asyncio.gather(
+                *(_process_chunk(c) for c in chunks)
             )
 
             # Convert local srt_id to global srt_id for assembly.
             blog_markdowns: list[str] = []
-            all_requests: list[FrameRequest] = []
+            evaluations: list[FrameEvaluation] = []
             chunks_succeeded = 0
-            offsets = []
             offset = 1
-            for chunk, output in zip(chunks, blog_outputs):
-                offsets.append(offset)
-                blog_markdowns.append(output.blog_markdown)
-                if not output.degraded:
+            for chunk, chunk_result in zip(chunks, chunk_results):
+                blog_markdowns.append(chunk_result.blog_output.blog_markdown)
+                if not chunk_result.blog_output.degraded:
                     chunks_succeeded += 1
-                for request in output.frame_requests:
-                    request.srt_id += offset - 1
-                    all_requests.append(request)
+                for evaluation in chunk_result.evaluations:
+                    evaluation.srt_id += offset - 1
+                    evaluations.append(evaluation)
                 offset += len(chunk.segments)
-
-            # 5. Program validates anchors and binds real frames.
-            print("校验锚点并绑定候选帧...")
-            eval_items: list[AnchorFrame] = []
-            for chunk, start in zip(chunks, offsets):
-                end = start + len(chunk.segments) - 1
-                local_requests = [
-                    r for r in all_requests if start <= r.srt_id <= end
-                ]
-                eval_items.extend(
-                    self._resolve_chunk_anchors(
-                        chunk,
-                        local_requests,
-                        frames_by_chunk.get(chunk.index, []),
-                        video_path,
-                        temp_frames,
-                        local_offset=start,
-                    )
-                )
-
-            # 6. Vision model validates frames, including retakes.
-            print("VisionFrameEvaluator 验图...")
-            evaluator = VisionFrameEvaluator()
-            eval_sem = asyncio.Semaphore(self.concurrency)
-
-            async def _evaluate_chunk(chunk, start):
-                end = start + len(chunk.segments) - 1
-                items = [
-                    item for item in eval_items
-                    if start <= item.srt_id <= end
-                ]
-                if not items:
-                    return []
-                async with eval_sem:
-                    return await evaluator.evaluate(items, video_path, temp_frames)
-
-            evaluated_by_chunk = await asyncio.gather(
-                *(_evaluate_chunk(c, s) for c, s in zip(chunks, offsets)),
-                return_exceptions=False,
-            )
-            evaluations = [
-                evaluation
-                for chunk_evaluations in evaluated_by_chunk
-                for evaluation in chunk_evaluations
-            ]
 
             # 7. Copy kept frames to src/ so Markdown references resolve.
             evaluations_by_anchor: dict[str, FrameEvaluation] = {}
@@ -316,8 +353,9 @@ class ChunkedDocGenerator:
             )
 
             failed_chunks = [
-                chunk.index for chunk, output in zip(chunks, blog_outputs)
-                if output.degraded
+                chunk.index
+                for chunk, chunk_result in zip(chunks, chunk_results)
+                if chunk_result.blog_output.degraded
             ]
             return ChunkedDocResult(
                 output_dir=output_dir,

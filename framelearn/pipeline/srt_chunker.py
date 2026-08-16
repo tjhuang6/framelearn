@@ -43,19 +43,22 @@ class SRTChunk:
 class SRTChunker:
     """Split a flat list of subtitle segments into fixed-duration chunks."""
 
-    def __init__(self, segment_minutes: int = 30):
+    def __init__(self, segment_minutes: float = 10):
         """Initialize with target chunk duration.
 
         Args:
             segment_minutes: Target chunk size in minutes of VIDEO time
-                (not subtitle count). Defaults to 30.
+                (not subtitle count). Fractional minutes are allowed;
+                defaults to 10 so a dense lecture stays close to a
+                lightly polished transcript instead of being summarized.
         """
+        segment_minutes = float(segment_minutes)
         if segment_minutes <= 0:
             raise ValueError(
                 f"segment_minutes must be > 0, got {segment_minutes}"
             )
         self.segment_minutes = segment_minutes
-        self.segment_seconds = segment_minutes * 60
+        self.segment_seconds = segment_minutes * 60.0
 
     def chunk(self, srt_segments: Iterable) -> list[SRTChunk]:
         """Group SRT segments into chunks of ~segment_minutes each.

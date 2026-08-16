@@ -94,3 +94,56 @@ def test_anchored_pipeline_generates_both_markdown_files(tmp_path, monkeypatch):
     srt_text = result.srt_picture_path.read_text(encoding="utf-8")
     assert "第一条字幕" in srt_text
     assert "candidate.jpg" in srt_text
+
+
+def test_one_chunk_failure_does_not_block_other_chunks(tmp_path, monkeypatch):
+    """One chunk's text-model failure should degrade only that chunk."""
+    import framelearn.pipeline.chunked_doc_generator as module
+
+    segments = [
+        TranscriptSegment(text="第一段正常字幕", start=0.0, end=5.0),
+        TranscriptSegment(text="第二段原始字幕", start=600.0, end=605.0),
+    ]
+    vision_calls = []
+
+    class FlakyBlogGenerator:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def generate(self, chunk, frames):
+            if chunk.index == 0:
+                return BlogGeneratorOutput(
+                    blog_markdown="第一段正文",
+                    frame_requests=[],
+                )
+            raise RuntimeError("text model unavailable")
+
+    class FakeVisionFrameEvaluator:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def evaluate(self, items, video_path, temp_frames):
+            vision_calls.append(list(items))
+            return []
+
+    monkeypatch.setattr(module, "BlogGenerator", FlakyBlogGenerator)
+    monkeypatch.setattr(module, "VisionFrameEvaluator", FakeVisionFrameEvaluator)
+
+    result = asyncio.run(
+        ChunkedDocGenerator(segment_minutes=10, concurrency=2).generate(
+            video_path=str(tmp_path / "unused.mp4"),
+            srt_segments=segments,
+            output_dir=tmp_path / "out",
+            video_title="多段测试",
+            pre_extracted_frames=[],
+        )
+    )
+
+    assert result.chunks_total == 2
+    assert result.chunks_succeeded == 1
+    assert result.failed_chunks == [1]
+
+    blog_text = result.blog_path.read_text(encoding="utf-8")
+    assert "第一段正文" in blog_text
+    assert "第二段原始字幕" in blog_text
+    assert vision_calls == []

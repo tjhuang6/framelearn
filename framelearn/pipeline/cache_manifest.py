@@ -70,8 +70,8 @@ class ConfigSnapshot:
     quality_review: bool
 
     # Chunked LLM doc-gen sections (see openspec/changes/chunked-llm-doc-gen)
-    chunking_segment_minutes: int = 30
-    chunking_max_images_per_chunk: int = 50
+    chunking_segment_minutes: float = 10.0
+    chunking_max_images_per_chunk: int = 20
     chunking_concurrency: int = 5
     text_clean_filler_words: tuple = ()
     doc_gen_srt_filename: str = "srt_picture.md"
@@ -150,8 +150,8 @@ class ConfigSnapshot:
             asr_model=asr_model,
             keyframe_selection=config_get_fn("agent.keyframe_selection", False),
             quality_review=config_get_fn("agent.quality_review", False),
-            chunking_segment_minutes=int(config_get_fn("chunking.segment_minutes", 30)),
-            chunking_max_images_per_chunk=int(config_get_fn("chunking.max_images_per_chunk", 50)),
+            chunking_segment_minutes=float(config_get_fn("chunking.segment_minutes", 10)),
+            chunking_max_images_per_chunk=int(config_get_fn("chunking.max_images_per_chunk", 20)),
             chunking_concurrency=int(config_get_fn("chunking.concurrency", 5)),
             text_clean_filler_words=filler,
             doc_gen_srt_filename=str(config_get_fn("doc_gen.srt_filename", "srt_picture.md")),

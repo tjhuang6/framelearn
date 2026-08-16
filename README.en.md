@@ -12,8 +12,9 @@ FrameLearn converts local programming tutorial videos into Markdown learning mat
   - Aliyun DashScope for chunked long-audio transcription, OSS upload, async polling, checkpoints, and SRT timestamps.
   - SiliconFlow SenseVoice for simpler transcription without timestamps.
 - Accepts an existing `.txt`, `.srt`, or `.vtt` file through `--subtitle` to skip ASR.
-- **Anchored blog pipeline**: SRT is split into 30-minute chunks, candidate frame markers are inserted into each chunk, the text LLM writes blog prose with `[[FRAME:id@timestamp]]` anchors, the program binds candidate frames or asks FFmpeg for precise captures, and the Qwen3-VL vision model only validates frames (retake / keep / caption / text_representation).
-- Always produces two Markdown files: `srt_picture.md` (preserves SRT structure, timestamps + embedded images) and `blog.md` (blog-style narrative + the same images).
+- **Anchored blog pipeline**: SRT is split into configurable chunks (default 10 minutes), candidate frame markers are inserted into each chunk, the text LLM lightly polishes the transcript into lecture notes that keep the speaker's voice and `[[FRAME:id@timestamp]]` anchors, the program binds candidate frames or asks FFmpeg for precise captures, and the Qwen3-VL vision model only validates frames (retake / keep / caption / text_representation).
+- Chunks are processed in parallel, bounded by `[chunking].concurrency`.
+- Always produces two Markdown files: `srt_picture.md` (preserves SRT structure, timestamps + embedded images) and `blog.md` (complete illustrated transcript in the speaker's voice + the same images).
 - Heuristic frame extraction (FFmpeg scene detection + pHash dedup) is summarized by SHA256 in the manifest, so a config change or a different frame set invalidates the cache automatically.
 - Routes `ask` through a text LLM API.
 
@@ -65,9 +66,9 @@ provider = "dashscope"
 model = "qwen-audio-3.0-asr-flash-filetrans"
 
 [chunking]
-segment_minutes = 30          # max video duration per chunk
-max_images_per_chunk = 50     # max frames kept per chunk
-concurrency = 5               # max in-flight LLM calls per stage
+segment_minutes = 10          # video minutes per chunk; 5-10 recommended
+max_images_per_chunk = 20     # max candidate frames shown to the LLM per chunk
+concurrency = 5               # max chunks processed in parallel
 
 [text_clean]
 # legacy chunked pipeline; the current blog-anchor pipeline does not call TextCleaner
@@ -80,7 +81,7 @@ max_frames = 200
 
 [doc_gen]
 srt_filename = "srt_picture.md"   # SRT structure + images
-blog_filename = "blog.md"         # blog-style narrative + same images
+blog_filename = "blog.md"         # complete illustrated transcript in the speaker's voice
 
 [blog_gen]
 frame_match_tolerance = 2.0       # anchor-to-candidate timestamp tolerance (seconds)
@@ -124,7 +125,7 @@ Traditional commands are `run`, `ask`, `summarize`, `session`, and `help`. Natur
 ```text
 output/<video-stem>/
 ├── srt_picture.md                 # SRT structure + timestamps + images
-├── blog.md                        # blog-style narrative + same images
+├── blog.md                        # complete illustrated transcript in the speaker's voice
 ├── src/
 │   ├── subtitle.txt               # cleaned plain text
 │   ├── subtitle.srt               # when timestamped SRT is available
@@ -150,7 +151,7 @@ CLI / REPL
       → FFmpegHelper
       → KeyframeDeduplicator
       → ChunkedDocGenerator
-          → SRTChunker → insert frame markers
+          → SRTChunker (10 min default) → per-chunk parallel pipeline
           → BlogGenerator → anchor validation / FFmpeg recapture
           → VisionFrameEvaluator → MDAssembler
 ```

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from framelearn.pipeline.asr_adapter import TranscriptSegment
 from framelearn.pipeline.blog_generator import (
+    BLOG_GENERATOR_PROMPT,
     _parse_blog_output,
     build_annotated_srt,
 )
@@ -147,3 +148,14 @@ def test_md_assembler_replaces_kept_anchor_and_removes_discarded(tmp_path):
     assert "src/a.jpg" in blog
     assert "说明" in blog
     assert "FRAME" not in blog
+
+
+def test_blog_prompt_is_faithful_transcript_not_summary():
+    """Prompt must ask for polished transcript, not a condensed blog."""
+    prompt = BLOG_GENERATOR_PROMPT
+    assert "像在看原视频" in prompt
+    assert "只润色，不总结" in prompt
+    assert "保留老师" in prompt
+    assert "第三人称" in prompt
+    assert "宁长勿短" in prompt
+    assert "不要重排、合并、提炼或压缩" in prompt

@@ -165,13 +165,16 @@ upgrade_model = ""   # 留空则不升级，例如 "qwen3-vl-32b-instruct"
 # ═══════════════════════════════════════════════════════════════════
 
 [chunking]
-# 每个 chunk 对应的视频时长（分钟）。30 分钟视频 = 1 段，60 分钟 = 2 段
-segment_minutes = 30
+# 每个 chunk 对应的视频时长（分钟）。推荐 5-10：
+#   5 = 最接近逐句润色，适合公式/代码密集的课
+#   10 = 普通课程默认值，保留更多上下文但 prompt 仍然足够短
+# 长视频（3-4 小时）建议保持 5 或 10，chunk 越小单次 LLM 越稳。
+segment_minutes = 10
 
-# 每个 chunk 最多给视觉模型看的图片数（Stage1 / Stage2 上限）
-max_images_per_chunk = 50
+# 每个 chunk 最多给文本/视觉模型看的候选帧数（10 分钟段建议 15-25）
+max_images_per_chunk = 20
 
-# 文本清洗 + 视觉模型 并发上限（避免 provider 限流）
+# 同时并行处理 chunk 的并发数（文本生成、补帧、视觉验图整体受限）
 concurrency = 5
 
 [text_clean]

@@ -127,8 +127,8 @@ def _default_config() -> dict[str, Any]:
             "upgrade_model": "",
         },
         "chunking": {
-            "segment_minutes": 30,
-            "max_images_per_chunk": 50,
+            "segment_minutes": 10,
+            "max_images_per_chunk": 20,
             "concurrency": 5,
         },
         "text_clean": {

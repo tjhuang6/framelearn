@@ -1,6 +1,7 @@
 .claude
 mine/
 .env
+.worktrees/
 __pycache__/
 .pytest_cache
 .venv
