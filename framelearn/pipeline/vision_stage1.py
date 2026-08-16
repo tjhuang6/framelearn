@@ -192,25 +192,34 @@ def _build_srt_md_segments(
         out.append({"type": "text", "text": f"{i}. {text}"})
         for f in attached.get(i, []):
             pic_counter += 1
-            out.append({"type": "image", "path": f.path})
-            # Markdown reference + timestamp RIGHT AFTER the image so
-            # the model sees it positionally adjacent.
+            # Timestamp FIRST so the model reads "next image is at 150s"
+            # BEFORE seeing the image itself — OpenAI multimodal content
+            # has no per-image metadata, the only way to attach
+            # timestamp is via the immediately-preceding text segment.
             out.append(
                 {
                     "type": "text",
-                    "text": f"![picture {pic_counter}]({f.path})  *timestamp {f.timestamp_sec:.1f}s*",
+                    "text": f"【接下来是 picture {pic_counter}，时间戳 {f.timestamp_sec:.1f}s，路径 {f.path}】",
+                }
+            )
+            out.append({"type": "image", "path": f.path})
+            out.append(
+                {
+                    "type": "text",
+                    "text": f"![picture {pic_counter}]({f.path})",
                 }
             )
     # Any frames we couldn't attach (no segments) get tacked on the end.
     for f in attached.get(0, []):
         pic_counter += 1
-        out.append({"type": "image", "path": f.path})
         out.append(
             {
                 "type": "text",
-                "text": f"![picture {pic_counter}]({f.path})  *timestamp {f.timestamp_sec:.1f}s*",
+                "text": f"【接下来是 picture {pic_counter}，时间戳 {f.timestamp_sec:.1f}s，路径 {f.path}】",
             }
         )
+        out.append({"type": "image", "path": f.path})
+        out.append({"type": "text", "text": f"![picture {pic_counter}]({f.path})"})
     return out
 
 
