@@ -197,15 +197,16 @@ STAGE1_PROMPT = """你是视频字幕整理助手。会给你一份"已配图的
 {{
   "blog_markdown": "## 标题\n\n[博客式段落...]",
   "selected_timestamps": [
-    {{"srt_id": <int>, "timestamp": <float seconds>, "needs_extract": <bool>, "source_frame_path": "<path|null>", "reason": "<string>"}},
-    ...
+    {{"srt_id": 1, "timestamp": 0.0, "needs_extract": false, "source_frame_path": "src/frame_00h00m00s000ms_interval_001.jpg", "reason": "保留：内容匹配，时间点对"}},
+    {{"srt_id": 2, "timestamp": 6.5, "needs_extract": true, "source_frame_path": null, "reason": "重截：原图是过渡帧，更准的时间点是 6.5s"}}
   ]
 }}
 
 约束：
 - selected_timestamps 数量 ≤ {max_images}
-- needs_extract=true 时 source_frame_path 必须是 null
-- needs_extract=false 时 source_frame_path 必须是输入 SRT_MD 里 `![](...)` 出现过的图片路径
+- needs_extract=true 时 source_frame_path 必须是 null（重截）
+- needs_extract=false + source_frame_path 为输入 SRT_MD 里 `![](...)` 出现过的图片路径（保留）
+- needs_extract=false + source_frame_path=null（删除：质量差或多余）
 - timestamp 允许相对启发式帧调整 ±2 秒
 - 不要输出 markdown 之外的解释文字
 
