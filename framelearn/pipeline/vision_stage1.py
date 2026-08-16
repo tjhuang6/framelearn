@@ -174,13 +174,16 @@ STAGE1_PROMPT = """你是视频字幕整理助手。会给你一份"已配图的
 
 现在，请基于以上规则，开始处理我提供的字幕内容。
 
-2. **决定每张 picture N 的去留**：
-   - 内容对得上 + 时间点对 → **保留**（needs_extract=false，source_frame_path 写成 markdown 里出现过的那个 `path`，srt_id 取最近的段号）
-   - 时间点差 ±2 秒 → **调整 timestamp**（source_frame_path 仍指向同一张图，timestamp 用更准的秒数）
-   - 内容真不行（黑屏、过渡帧、模糊）→ **重截**（needs_extract=true，source_frame_path=null，给新 timestamp）
-   - 截屏多余或质量太差 → **删除**（needs_extract=false，source_frame_path=null，从列表里去掉这张图）
+## 图片去留 4 态规则
 
-3. **新增截图**（可选）：启发式漏了老师提到的关键图（PPT / 代码 / 表格 / 屏幕），needs_extract=true + 新 timestamp。
+每张 `![picture N](path)` 标记对应一张启发式截图，请逐张决定去留：
+
+- 内容对得上 + 时间点对 → **保留**（needs_extract=false，source_frame_path 写成 markdown 里出现过的那个 `path`，srt_id 取最近的段号）
+- 时间点差 ±2 秒 → **调整 timestamp**（source_frame_path 仍指向同一张图，timestamp 用更准的秒数）
+- 内容真不行（黑屏、过渡帧、模糊）→ **重截**（needs_extract=true，source_frame_path=null，给新 timestamp）
+- 截屏多余或质量太差 → **删除**（needs_extract=false，source_frame_path=null，从列表里去掉这张图）
+
+另外，如果启发式漏了老师提到的关键图（PPT / 代码 / 表格 / 屏幕），可以**新增截图**（needs_extract=true + 新 timestamp）。
 
 ## 输入
 
