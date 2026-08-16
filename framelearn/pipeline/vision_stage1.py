@@ -146,15 +146,25 @@ def _build_srt_md_segments(
         out.append({"type": "text", "text": f"{i}. {text}"})
         for f in attached.get(i, []):
             pic_counter += 1
-            out.append({"type": "image", "path": f.path, "label": f"picture {pic_counter}", "src_path": f.path, "timestamp_sec": f.timestamp_sec})
-            # Inject the markdown reference right after the image so the
-            # model sees it positionally adjacent to the image.
-            out.append({"type": "text", "text": f"![picture {pic_counter}]({f.path})  *timestamp {f.timestamp_sec:.1f}s*"})
+            out.append({"type": "image", "path": f.path})
+            # Markdown reference + timestamp RIGHT AFTER the image so
+            # the model sees it positionally adjacent.
+            out.append(
+                {
+                    "type": "text",
+                    "text": f"![picture {pic_counter}]({f.path})  *timestamp {f.timestamp_sec:.1f}s*",
+                }
+            )
     # Any frames we couldn't attach (no segments) get tacked on the end.
     for f in attached.get(0, []):
         pic_counter += 1
-        out.append({"type": "image", "path": f.path, "label": f"picture {pic_counter}", "src_path": f.path, "timestamp_sec": f.timestamp_sec})
-        out.append({"type": "text", "text": f"![picture {pic_counter}]({f.path})  *timestamp {f.timestamp_sec:.1f}s*"})
+        out.append({"type": "image", "path": f.path})
+        out.append(
+            {
+                "type": "text",
+                "text": f"![picture {pic_counter}]({f.path})  *timestamp {f.timestamp_sec:.1f}s*",
+            }
+        )
     return out
 
 
