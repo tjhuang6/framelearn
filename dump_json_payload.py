@@ -63,6 +63,7 @@ instruction_text = STAGE1_PROMPT.format(chunk_text=pic_index, max_images=50)
 all_segments = [{"type": "text", "text": instruction_text}, *body]
 
 config = ProviderConfig(
+    provider="siliconflow",
     base_url="https://api.siliconflow.cn/v1",
     api_key="sk-placeholder",
     model="Qwen/Qwen3-VL-8B-Instruct",
