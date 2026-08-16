@@ -22,7 +22,6 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 from framelearn.config import get as config_get
 from framelearn.pipeline.heuristic_frame_extractor import CandidateFrame
@@ -36,7 +35,7 @@ from framelearn.provider_adapter import (
 )
 
 
-STAGE1_PROMPT = """你是视频字幕整理助手。会给你一份"已配图的 SRT markdown"——字幕段按时间顺序排好，每段后面可能跟着一张或多张该时间点的启发式截图，**每张图片前面紧跟一行 markdown 标记** `![picture N](path)` 和时间戳，方便你把图和上下文配对（vision API 会按"标记-图-标记-图"的顺序发给你——即 `![picture N](path)` 在图片前面，图片紧跟其后）。
+STAGE1_PROMPT = """你是视频字幕整理助手。会给你一份"已配图的 SRT markdown"——字幕段按时间顺序排好，每段后面可能跟着一张或多张该时间点的启发式截图，**每张图片前面都有一行 markdown 标记** `![picture N](path)` 和时间戳，方便你把图和上下文配对（vision API 会按"标记-图-标记-图"的顺序发给你——marker 先发、image 紧跟在 marker 后面）。
 
 ## 任务
 
