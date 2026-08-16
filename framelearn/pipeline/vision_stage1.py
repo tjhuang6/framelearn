@@ -35,40 +35,27 @@ from framelearn.provider_adapter import (
 )
 
 
-STAGE1_PROMPT = """你是视频字幕整理助手。给你一段已清洗的 SRT 和该段内的启发式截帧列表。
+STAGE1_PROMPT = """你是视频字幕整理助手。会给你一份"已配图的 SRT markdown"——字幕段按时间顺序排好，每段后面可能跟着一张或多张该时间点的启发式截图（用 `![](path)` 标记）。
 
 ## 任务
 
 请做三件事：
 
-1. **生成博客式 markdown**：合并 SRT 段为连贯的叙述段落，去掉时间戳和序号。
-   - 第一人称用"老师"或"我"（跟随视频语气）
-   - 不出现"老师说"前缀
-   - 保留所有知识点
+1. **生成markdown**：合并 SRT 段为连贯的叙述段落，去掉时间戳和序号，使表达通畅。尽量不要出现第一人称。
 
-2. **保留合适的启发式帧**：从启发式帧中挑选要保留的帧。
+2. **决定每张启发式截图的去留 / 调整 / 重截 / 删除**：
+   - 内容对得上 + 时间点对 → 保留（needs_extract=false，source_frame_path 引用 SRT_MD 里出现过的图片路径）
+   - 时间点差 ±2 秒 → 调整 timestamp，source_frame_path 仍指向同一张图
+   - 内容真不行（黑屏、过渡帧、模糊）→ 重截（needs_extract=true，source_frame_path=null，给新 timestamp）
+   - 截屏多余,或者质量太差 -> 删除（needs_extract=false，source_frame_path=null）
 
-3. **新增 / 调整 时间戳**（可选）：
-   - 如果启发式没截到老师提到的图（如 PPT / 代码 / 表格），新增 timestamp
-   - 如果启发式帧的时间点不够精确（如差 ±2 秒），调整 timestamp
-
-## 启发式帧
-
-每张帧含 srt_id（对应字幕段 id）和 timestamp_sec（视频秒数）。
-
-## 候选时间戳选择规则（硬下限）
-
-出现以下关键词的 SRT 段必选：
-- "看"、"如图"、"图中"、"屏幕"、"代码"、"演示"、"PPT"、"表格"、"终端"、"运行结果"
+3. **新增截图**（可选）：启发式漏了老师提到的关键图（PPT / 代码 / 表格 / 屏幕），needs_extract=true + 新 timestamp。
 
 ## 输入
 
-<subtitle>
+<SRT_MD>
 {chunk_text}
-</subtitle>
-
-启发式帧：
-{frames_json}
+</SRT_MD>
 
 ## 输出 JSON（严格格式，不要解释）
 
@@ -83,7 +70,7 @@ STAGE1_PROMPT = """你是视频字幕整理助手。给你一段已清洗的 SRT
 约束：
 - selected_timestamps 数量 ≤ {max_images}
 - needs_extract=true 时 source_frame_path 必须是 null
-- needs_extract=false 时 source_frame_path 必须是启发式帧的 path
+- needs_extract=false 时 source_frame_path 必须是输入 SRT_MD 里 `![](...)` 出现过的图片路径
 - timestamp 允许相对启发式帧调整 ±2 秒
 - 不要输出 markdown 之外的解释文字
 """
