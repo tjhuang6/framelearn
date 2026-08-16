@@ -93,7 +93,7 @@ STAGE1_PROMPT = """你是视频字幕整理助手。会给你一份"已配图的
 ![picture 2](src/frame_00h06m02s700ms_scene_001.jpg)  *timestamp 362.7s*
 </SRT_MD>
 
-期望输出 JSON（picture 1 内容对得上段 1，picture 2 实际跟段 3 更近，模型自己判断）：
+期望输出 JSON：
 
 ```json
 {{
