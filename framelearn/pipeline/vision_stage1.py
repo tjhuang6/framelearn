@@ -267,8 +267,7 @@ class VisionStage1:
     ) -> VisionStage1Output:
         """Run Stage1 for one chunk. Returns a fallback on final failure."""
         prompt = STAGE1_PROMPT.format(
-            chunk_text=_format_srt(chunk.segments),
-            frames_json=_format_frames(frames_in_chunk),
+            chunk_text=_format_srt_md(chunk.segments, frames_in_chunk),
             max_images=self.max_images,
         )
         image_paths = [f.path for f in frames_in_chunk]
