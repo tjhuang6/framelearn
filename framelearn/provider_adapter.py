@@ -131,12 +131,16 @@ def _resolve_api_key(provider_key: str) -> str:
     """Read the API key for a provider from .env. No defaults — placeholder
     strings are caught later by call_llm, but a missing key fails fast here."""
     # Try provider-specific env var first (DEEPSEEK_API_KEY, etc.), then
-    # the legacy generic names.
+    # the legacy generic names. For claude we also try ANTHROPIC_AUTH_TOKEN
+    # because some users (e.g. minimaxi proxy) run with that as the
+    # bearer token instead of X-Api-Key.
     candidates = [
         f"{provider_key.upper()}_API_KEY",
         "TEXT_API_KEY",  # legacy
         "VISION_API_KEY",  # legacy
     ]
+    if provider_key == "claude":
+        candidates.insert(0, "ANTHROPIC_AUTH_TOKEN")
     for env_name in candidates:
         value = os.getenv(env_name, "")
         if value:
