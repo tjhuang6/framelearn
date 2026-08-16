@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 from framelearn.config import get as config_get
+from framelearn.file_utils import atomic_write_text
 from framelearn.pipeline.asr_adapter import ASRAdapter, TranscriptSegment
 from framelearn.pipeline.cache_manifest import create_manifest, CacheManifest
 from framelearn.pipeline.ffmpeg_helper import FFmpegHelper
@@ -292,13 +293,13 @@ class VideoPipeline:
 
             # Save subtitle text
             subtitle_path = src_dir / "subtitle.txt"
-            subtitle_path.write_text(cleaned_subtitle, encoding="utf-8")
+            atomic_write_text(subtitle_path, cleaned_subtitle)
 
             # Save SRT if available (dashscope has timestamps)
             srt_path: Path | None = None
             if transcript.has_timestamps and transcript.srt:
                 srt_path = src_dir / "subtitle.srt"
-                srt_path.write_text(transcript.srt, encoding="utf-8")
+                atomic_write_text(srt_path, transcript.srt)
                 print(f"✅ 字幕文件：{srt_path}")
 
             # Step 4: Build pre-extracted frame list from cache (optional).

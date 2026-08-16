@@ -118,10 +118,12 @@ class RunReporter:
         }
 
     def write_report(self, path: Path, status: str = "success", error: Optional[str] = None) -> None:
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(self.to_dict(status=status, error=error), f, indent=2, ensure_ascii=False)
+        from framelearn.file_utils import atomic_write_text
+
+        atomic_write_text(
+            path,
+            json.dumps(self.to_dict(status=status, error=error), indent=2, ensure_ascii=False),
+        )
 
 
 # ── global accessor (mirrors framelearn.privacy_tracker) ──────────────

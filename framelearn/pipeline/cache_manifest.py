@@ -260,10 +260,13 @@ class CacheManifest:
         return cls(**data)
     
     def save(self, path: Path):
-        """Save manifest to JSON file."""
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(self.to_dict(), f, indent=2, ensure_ascii=False)
+        """Save manifest to JSON file atomically."""
+        from framelearn.file_utils import atomic_write_text
+
+        atomic_write_text(
+            path,
+            json.dumps(self.to_dict(), indent=2, ensure_ascii=False),
+        )
     
     @classmethod
     def load(cls, path: Path) -> Optional["CacheManifest"]:

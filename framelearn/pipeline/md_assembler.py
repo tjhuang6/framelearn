@@ -205,6 +205,8 @@ class MDAssembler:
 
         srt_path = output_dir / self.srt_filename
         blog_path = output_dir / self.blog_filename
-        srt_path.write_text(srt_content, encoding="utf-8")
-        blog_path.write_text(blog_content, encoding="utf-8")
+        from framelearn.file_utils import atomic_write_text
+
+        atomic_write_text(srt_path, srt_content)
+        atomic_write_text(blog_path, blog_content)
         return srt_path, blog_path
