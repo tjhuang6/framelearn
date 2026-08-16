@@ -331,18 +331,25 @@ def _build_srt_md_segments(
         out.append({"type": "text", "text": f"{ts_header}\n{text}\n"})
         for f in attached.get(i, []):
             pic_counter += 1
-            # Marker first, image second.
+            # Marker first, image second. Marker carries the timestamp
+            # so the model can pair it with the closest subtitle range
+            # without having to look back to the previous segment.
             out.append(
                 {
                     "type": "text",
-                    "text": f"![picture {pic_counter}]({f.path})\n\n",
+                    "text": f"![picture {pic_counter} @ {f.timestamp_sec:.1f}s]({f.path})\n\n",
                 }
             )
             out.append({"type": "image", "path": f.path})
     # Any frames we couldn't attach (no segments) get tacked on the end.
     for f in attached.get(0, []):
         pic_counter += 1
-        out.append({"type": "text", "text": f"![picture {pic_counter}]({f.path})\n\n"})
+        out.append(
+            {
+                "type": "text",
+                "text": f"![picture {pic_counter} @ {f.timestamp_sec:.1f}s]({f.path})\n\n",
+            }
+        )
         out.append({"type": "image", "path": f.path})
     return out
 
