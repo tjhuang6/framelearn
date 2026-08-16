@@ -214,13 +214,20 @@ STAGE1_PROMPT = """你是视频字幕整理助手。会给你一份"已配图的
 
 ## 真实例子
 
-输入 SRT_MD ：
-<SRT_MD>
-"text": "00:00:00,000 --> 00:00:22,500\n宽呢224..."}
-"text": "![picture 1](.../frame_00h00m00s000ms_interval_001.jpg)\n\n"
-"image_url": {"url": "data:image/jpeg;base64,<...>"
-"text": "00:00:22,500 --> 00:00:27,000\n我们在卷积的时候..."
-</SRT_MD>
+输入 SRT_MD 长这样（vision API 会把每张图按"标记 → 图"的顺序紧邻发给你）：
+
+```
+00:00:39,000 --> 00:00:45,000
+这个数和这个数去相乘，这个数和这去相乘，这个和这个对吧？
+
+00:00:45,000 --> 00:00:51,000
+这就是相乘，然后这个数又好哪个？
+
+00:00:51,000 --> 00:00:56,000
+第3层这个数要和这个值去相乘。
+
+![picture 3](src/frame_00h02m30s000ms_interval_006.jpg)
+```
 
 期望输出 JSON：
 
@@ -229,7 +236,7 @@ STAGE1_PROMPT = """你是视频字幕整理助手。会给你一份"已配图的
   "blog_markdown": "## 图像数据的基本构成与卷积操作\n\n图像本质上由 RGB 三通道构成，每通道对应一个二维矩阵……（合并所有段的博客叙述）",
   "selected_timestamps": [
     {{"srt_id": 1, "timestamp": 0.0, "needs_extract": false, "source_frame_path": "src/frame_00h00m00s000ms_interval_001.jpg", "reason": "内容匹配，时间点准确"}},
-    {{"srt_id": 3, "timestamp": 362.7, "needs_extract": false, "source_frame_path": "src/frame_00h06m02s700ms_scene_001.jpg", "reason": "内容匹配，时间点准确"}}
+    {{"srt_id": 3, "timestamp": 53.0, "needs_extract": false, "source_frame_path": "src/frame_00h02m30s000ms_interval_006.jpg", "reason": "内容匹配，时间点准确"}}
   ]
 }}
 ```
