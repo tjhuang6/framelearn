@@ -148,23 +148,40 @@ def _parse_stage1(raw: str, frames: list[CandidateFrame]) -> VisionStage1Output 
         src = item.get("source_frame_path")
         reason = str(item.get("reason", ""))
 
+        # Four valid output states per the prompt:
+        #   needs_extract=true,  src=null          → 重截（ffmpeg 新截一张）
+        #   needs_extract=false, src=<known path>  → 保留（用现有启发式帧）
+        #   needs_extract=false, src=null          → 删除（不输出，不进 Stage2 / MD）
+        #   needs_extract=false, src=<unknown>     → 删除（幻觉路径，丢掉比误截更安全）
         if needs_extract:
             src = None
-        elif src not in frame_paths:
-            # LLM claimed to reuse a heuristic frame but the path doesn't
-            # match any — treat as needs_extract.
-            needs_extract = True
-            src = None
-
-        parsed.append(
-            SelectedTimestamp(
-                srt_id=srt_id,
-                timestamp=timestamp,
-                needs_extract=needs_extract,
-                source_frame_path=src,
-                reason=reason,
+            parsed.append(
+                SelectedTimestamp(
+                    srt_id=srt_id,
+                    timestamp=timestamp,
+                    needs_extract=True,
+                    source_frame_path=None,
+                    reason=reason,
+                )
             )
-        )
+        elif src in frame_paths:
+            parsed.append(
+                SelectedTimestamp(
+                    srt_id=srt_id,
+                    timestamp=timestamp,
+                    needs_extract=False,
+                    source_frame_path=src,
+                    reason=reason,
+                )
+            )
+        else:
+            # needs_extract=False with null or unknown path → 删除
+            get_reporter().record_fallback(
+                "vision_stage1.frame_dropped",
+                f"srt_id={srt_id} 的启发式帧被删除（path={src!r}）",
+            )
+            continue
+
     return VisionStage1Output(blog_markdown=blog, selected_timestamps=parsed)
 
 
