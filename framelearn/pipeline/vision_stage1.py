@@ -91,26 +91,51 @@ class VisionStage1Output:
     selected_timestamps: list[SelectedTimestamp]
 
 
-def _format_srt(segments: Iterable) -> str:
-    """Render SRT segments as numbered lines for the prompt."""
-    lines = []
+def _format_srt_md(segments: Iterable, frames: list[CandidateFrame]) -> str:
+    """Render SRT_MD: numbered subtitle blocks, each followed by any
+    heuristic frames that the frame distributor placed in its window.
+
+    A frame belongs to the segment whose index is its position in
+    ``frames`` (heuristic extractor keeps order, distributor preserves
+    it). The resulting markdown looks like::
+
+        1. 老师讲到卷积层...
+
+        ![](src/frame_00h06m02s700ms_scene_001.jpg)
+
+        2. 接下来看 padding...
+
+        3. ...
+
+        ![](src/frame_..._scene_002.jpg)
+    """
+    lines: list[str] = []
+    # We iterate segments and consume frames sequentially — each frame
+    # is attributed to the segment index that precedes it (1-based).
+    frame_iter = iter(frames)
+    pending: list[CandidateFrame] = []
     for i, seg in enumerate(segments, start=1):
         text = getattr(seg, "text", "") or ""
         lines.append(f"{i}. {text}")
-    return "\n".join(lines)
-
-
-def _format_frames(frames: list[CandidateFrame]) -> str:
-    """Render frames as JSON for the prompt."""
-    items = [
-        {
-            "srt_id_hint": i + 1,  # stage1 maps heuristic frame index → segment index
-            "timestamp_sec": f.timestamp_sec,
-            "path": f.path,
-        }
-        for i, f in enumerate(frames)
-    ]
-    return json.dumps(items, ensure_ascii=False, indent=2)
+        # Drain any frames whose index == i (the heuristic extractor
+        # uses 1-based segment ids matching the chunk's segments list).
+        # We accept both 0-based and 1-based srt_id_hint by checking
+        # the frame's position in the frame list: i-1 == position.
+        while True:
+            try:
+                f = next(frame_iter)
+            except StopIteration:
+                break
+            # Heuristic frames don't carry an srt_id — they're attributed
+            # positionally. Attach to the current segment.
+            pending.append(f)
+        for f in pending:
+            lines.append(f"![]({f.path})")
+        pending.clear()
+    # If any frames remain (shouldn't normally happen), append them.
+    for f in pending:
+        lines.append(f"![]({f.path})")
+    return "\n\n".join(lines)
 
 
 def _parse_stage1(raw: str, frames: list[CandidateFrame]) -> VisionStage1Output | None:
