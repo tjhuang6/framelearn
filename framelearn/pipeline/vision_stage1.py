@@ -169,6 +169,23 @@ def _build_srt_md_segments(
     return out
 
 
+def _format_picture_index(frames: list[CandidateFrame]) -> str:
+    """Build a compact `{chunk_text}` placeholder body for the prompt
+    template — a numbered list of every picture the model will see.
+
+    The actual SRT_MD content (with each picture's `![](path)` reference
+    sitting right next to its image in the content array) lives in the
+    interleaved body segments. This index just gives the model a
+    human-readable manifest at the top of the prompt.
+    """
+    if not frames:
+        return "（无候选帧）"
+    lines = ["## 候选帧清单"]
+    for i, f in enumerate(frames, start=1):
+        lines.append(f"- picture {i}: `{f.path}` @ {f.timestamp_sec:.1f}s")
+    return "\n".join(lines)
+
+
 def _parse_stage1(raw: str, frames: list[CandidateFrame]) -> VisionStage1Output | None:
     """Parse LLM response into VisionStage1Output, or None on failure."""
     if not raw:
