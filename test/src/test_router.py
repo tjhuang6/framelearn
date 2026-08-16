@@ -288,3 +288,48 @@ class TestValidation:
 
     def test_case_insensitive(self):
         assert self.router._is_video_file("/path/VIDEO.MP4") is True
+
+    def test_downloaded_subtitle_is_passed_to_pipeline(self, tmp_path):
+        video = tmp_path / "video.mp4"
+        video.write_bytes(b"\x00")
+        subtitle = tmp_path / "video.en.srt"
+        subtitle.write_text(
+            "1\n00:00:00,000 --> 00:00:01,000\nHello\n",
+            encoding="utf-8",
+        )
+
+        from framelearn.downloaders import DownloadedVideo
+        from framelearn.pipeline import PipelineResult
+
+        downloaded = DownloadedVideo(
+            video_path=video,
+            source_url="https://youtube.com/watch?v=abc12345678",
+            platform="youtube",
+            video_id="abc12345678",
+            subtitle_path=subtitle,
+            subtitle_language="en",
+            subtitle_source="supadata",
+        )
+        mock_result = PipelineResult(
+            output_dir=tmp_path,
+            srt_picture_path=tmp_path / "srt_picture.md",
+            blog_path=tmp_path / "blog.md",
+            keyframes=[],
+            subtitle_text="",
+            error=None,
+        )
+
+        with (
+            patch("framelearn.router.download_video", return_value=downloaded),
+            patch("framelearn.pipeline.VideoPipeline") as mock_cls,
+        ):
+            mock_instance = MagicMock()
+            mock_instance.run.return_value = mock_result
+            mock_cls.return_value = mock_instance
+
+            router = make_router()
+            router.execute("run https://youtube.com/watch?v=abc12345678")
+
+        mock_cls.assert_called_once()
+        _, kwargs = mock_cls.call_args
+        assert kwargs["subtitle_path"] == str(subtitle)

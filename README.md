@@ -8,6 +8,7 @@ FrameLearn 将本地及线上编程教学视频转换为带关键帧的 Markdown
 
 - 处理本地 `.mp4`、`.mkv`、`.avi`、`.mov`、`.flv`、`.wmv`、`.webm` 视频。
 - 直接处理线上视频 URL：YouTube、Bilibili（含 `b23.tv` 短链）、抖音（含分享口令）、快手（含分享口令）；下载器基于 yt-dlp 并移植/适配 BiliNote 的 B 站 412 patch、抖音访客 Cookie 流程与快手 GraphQL 流程。
+- 在线视频会自动尝试接入平台字幕：YouTube 走 Supadata 原生英文 transcript（youtube-digest 同款 `lang=en&mode=native`），Bilibili 走 `x/player/v2` 官方字幕（Bilitato 同款，中文优先）；拿不到时回退 yt-dlp 字幕，再回退 ASR。
 - 自动识别视频内音轨；若 B 站下载文件音视频分离，会在同目录查找同前缀的 `.mp3`、`.m4a` 或 `.aac`。
 - ASR 支持：
   - 阿里云百炼 DashScope：长音频分片、OSS 临时上传、异步转写、断点记录和 SRT 时间戳。
@@ -26,12 +27,13 @@ FrameLearn 将本地及线上编程教学视频转换为带关键帧的 Markdown
 - 可选的平台 Cookie 配置在 `.env`（见模板）：
   - `BILIBILI_COOKIE`：B 站 SESSDATA，提升画质/解锁字幕。
   - `YOUTUBE_COOKIE`：YouTube cookies.txt 路径或整段 Cookie。
+  - `SUPADATA_API_KEY`：YouTube 原生字幕 API key（可选；未配置时仍会尝试 yt-dlp 字幕和 ASR）。
   - `DOUYIN_COOKIE`：抖音风控时使用；未配置时会自动生成访客 `ttwid` / `msToken`。
   - `KUAISHOU_COOKIE`：快手 GraphQL 触发验证码时通常必需，请复制浏览器完整 Cookie。
 
 ## 尚未实现或受限的能力
 
-- 平台自带字幕尚未接入：在线视频仍会下载视频后走 FrameLearn 的 ASR 流程。
+- 抖音/快手暂不抓取平台字幕（没有稳定公开字幕接口）；这类视频继续走 ASR。
 - `ask` 当前不是“只检索已生成教材”的 RAG 问答；它是工作目录中的通用 API 对话。
 - 快手接口风控较严，无 Cookie 时可能无法解析；遇到验证码请配置 `KUAISHOU_COOKIE`。
 

@@ -162,6 +162,14 @@ proxy = ""
 #   DOUYIN_COOKIE      抖音登录/访客 Cookie（接口风控时使用）
 #   KUAISHOU_COOKIE    快手登录 Cookie（接口触发验证码时必需）
 
+# 在线字幕优先级：
+#   YouTube → Supadata 原生英文 transcript（youtube-digest 方式）
+#             → yt-dlp 字幕 → ASR 兜底
+#   Bilibili → B 站官方字幕（Bilitato 的 player/v2 方式，中文优先）
+#             → yt-dlp 字幕 → ASR 兜底
+# Supadata key 配置在 .env 的 SUPADATA_API_KEY。
+
+
 
 # ═══════════════════════════════════════════════════════════════════
 # 八、Agent 决策配置[agent]

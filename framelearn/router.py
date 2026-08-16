@@ -116,6 +116,7 @@ class CommandRouter:
             raise ValueError(f"字幕文件不存在：{subtitle_path}")
 
         url = extract_url(source)
+        downloaded_subtitle_path: str | None = None
         if url:
             if not self._is_valid_video_url(url):
                 raise ValueError(
@@ -129,6 +130,13 @@ class CommandRouter:
 
             if downloaded.title:
                 print(f"🎬 视频：{downloaded.title}")
+            if downloaded.subtitle_path and os.path.isfile(downloaded.subtitle_path):
+                downloaded_subtitle_path = str(downloaded.subtitle_path)
+                print(
+                    "💬 已获取在线字幕："
+                    f"{downloaded.subtitle_language or 'unknown'} "
+                    f"({downloaded.subtitle_source or 'online'})"
+                )
         else:
             pipeline_source = source
             if not os.path.isfile(pipeline_source):
@@ -138,7 +146,13 @@ class CommandRouter:
 
         from framelearn.pipeline import VideoPipeline
 
-        pipeline = VideoPipeline(pipeline_source, subtitle_path=subtitle_path)
+        # An explicit --subtitle always wins; otherwise use subtitles found
+        # by the online downloader. If neither exists, VideoPipeline falls
+        # back to audio extraction + ASR.
+        pipeline_subtitle_path = subtitle_path or downloaded_subtitle_path
+        pipeline = VideoPipeline(
+            pipeline_source, subtitle_path=pipeline_subtitle_path
+        )
         result = pipeline.run()
 
         if result.error:

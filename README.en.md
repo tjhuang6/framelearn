@@ -8,6 +8,7 @@ FrameLearn converts local and online programming tutorial videos into Markdown l
 
 - Processes local `.mp4`, `.mkv`, `.avi`, `.mov`, `.flv`, `.wmv`, and `.webm` files.
 - Downloads online videos from YouTube, Bilibili (including `b23.tv`), Douyin, and Kuaishou. Downloaders are yt-dlp based with BiliNote-adapted Bilibili dm_img patch, Douyin visitor-cookie, and Kuaishou GraphQL flows.
+- Online subtitles are attached automatically when available: YouTube uses Supadata native English transcripts (`lang=en&mode=native`, same as youtube-digest), Bilibili uses the `x/player/v2` official subtitle API (same as Bilitato, Chinese preferred); then yt-dlp subtitles, then ASR.
 - Uses the video's audio stream or finds a companion `.mp3`, `.m4a`, or `.aac` file for split Bilibili downloads.
 - Supports two ASR backends:
   - Aliyun DashScope for chunked long-audio transcription, OSS upload, async polling, checkpoints, and SRT timestamps.
@@ -23,11 +24,11 @@ FrameLearn converts local and online programming tutorial videos into Markdown l
 
 - Downloaded videos are cached in `[download].download_dir` (default `./downloads`) and reused by platform video ID.
 - YouTube generally needs a proxy in mainland China: set `DOWNLOAD_PROXY`, `[download].proxy`, or standard `HTTP_PROXY` / `HTTPS_PROXY`.
-- Optional cookies in `.env`: `BILIBILI_COOKIE`, `YOUTUBE_COOKIE`, `DOUYIN_COOKIE`, `KUAISHOU_COOKIE`. Kuaishou often requires `KUAISHOU_COOKIE` when the GraphQL API returns a captcha challenge.
+- Optional cookies in `.env`: `BILIBILI_COOKIE`, `YOUTUBE_COOKIE`, `DOUYIN_COOKIE`, `KUAISHOU_COOKIE`; `SUPADATA_API_KEY` enables the native YouTube transcript path. Kuaishou often requires `KUAISHOU_COOKIE` when the GraphQL API returns a captcha challenge.
 
 ## Current limitations
 
-- Platform-provided subtitles are not used yet; online videos go through FrameLearn's ASR pipeline after download.
+- Douyin/Kuaishou have no stable public subtitle API, so those platforms still go through ASR.
 - Kuaishou's anti-bot checks may block requests without `KUAISHOU_COOKIE`.
 - `summarize` only prints instructions for an external `/summarize-learning` skill.
 - `ask` is a general workspace conversation, not a tutorial-grounded RAG implementation.

@@ -1,6 +1,10 @@
 """Online video downloaders for FrameLearn."""
 
-from framelearn.downloaders.online import DownloadedVideo, download_video
+from framelearn.downloaders.online import (
+    DownloadedSubtitle,
+    DownloadedVideo,
+    download_video,
+)
 from framelearn.downloaders.url_parser import (
     detect_platform,
     extract_url,
@@ -9,6 +13,7 @@ from framelearn.downloaders.url_parser import (
 )
 
 __all__ = [
+    "DownloadedSubtitle",
     "DownloadedVideo",
     "detect_platform",
     "download_video",

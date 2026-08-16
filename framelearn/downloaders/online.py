@@ -10,6 +10,13 @@ The download strategies are ported / adapted from the BiliNote project:
   endpoints are actually attached to the API request.  Without them the
   detail API now returns an empty body.  yt-dlp is the fallback.
 * Kuaishou: BiliNote's GraphQL ``visionVideoDetail`` flow.
+
+Online subtitle discovery is also ported from two reference projects:
+
+* YouTube uses ``youtube-digest``'s Supadata native-transcript flow
+  (``lang=en`` / ``mode=native``, async polling for long videos).
+* Bilibili uses ``Bilitato``'s ``x/player/v2`` subtitle flow (pick Chinese
+  first, download the subtitle JSON and convert ``from/to/content`` to SRT).
 """
 
 from __future__ import annotations
@@ -23,7 +30,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 import yt_dlp
@@ -73,6 +80,15 @@ KUAISHOU_HEADERS = {
 
 
 @dataclass
+class DownloadedSubtitle:
+    """Subtitle file found for an online video."""
+
+    path: Path
+    language: str | None = None
+    source: str | None = None
+
+
+@dataclass
 class DownloadedVideo:
     """A video that has been downloaded to a local path."""
 
@@ -83,6 +99,9 @@ class DownloadedVideo:
     title: str = ""
     duration: float | None = None
     thumbnail: str | None = None
+    subtitle_path: Path | None = None
+    subtitle_language: str | None = None
+    subtitle_source: str | None = None
     warnings: list[str] = field(default_factory=list)
 
 
@@ -233,6 +252,10 @@ def _ytdlp_options(
         "overwrites": False,
         "retries": 5,
         "fragment_retries": 5,
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        "subtitleslangs": ["zh.*", "en.*"],
+        "subtitlesformat": "srt/vtt/best",
     }
     if proxy:
         opts["proxy"] = proxy
@@ -273,11 +296,444 @@ def _locate_downloaded_file(output_dir: Path, video_id: str) -> Path | None:
     return None
 
 
+
+# ---------------------------------------------------------------------------
+# Online subtitle discovery
+#
+# Two project behaviours are ported here:
+# * YouTube follows ``youtube-digest``: Supadata's native transcript API is
+#   called with ``lang=en`` / ``mode=native``, and its timestamped chunks are
+#   converted to SRT. ``>>`` speaker markers from YouTube auto-captions are
+#   removed exactly like youtube-digest does.
+# * Bilibili follows ``Bilitato``: query ``x/player/pagelist`` for the CID,
+#   then ``x/player/v2`` for subtitle options, pick Chinese first, download
+#   the subtitle JSON and convert ``body[].from/to/content`` rows to SRT.
+# ---------------------------------------------------------------------------
+
+SUPADATA_TRANSCRIPT_URL = "https://api.supadata.ai/v1/transcript"
+SUPADATA_POLL_INTERVAL = 1.0
+SUPADATA_POLL_MAX_ATTEMPTS = 60
+
+BILIBILI_PAGELIST_URL = "https://api.bilibili.com/x/player/pagelist"
+BILIBILI_PLAYER_V2_URL = "https://api.bilibili.com/x/player/v2"
+
+_SUBTITLE_SUFFIXES = (".srt", ".vtt")
+
+
+def _format_srt_time(seconds: float) -> str:
+    """Format seconds as ``HH:MM:SS,mmm``."""
+    ms = max(0, round(float(seconds) * 1000))
+    h, rem = divmod(ms, 3_600_000)
+    m, rem = divmod(rem, 60_000)
+    s, ms = divmod(rem, 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def _write_srt(path: Path, rows: list[tuple[float, float, str]]) -> Path:
+    """Write ``(start, end, text)`` rows to an SRT file."""
+    lines: list[str] = []
+    for index, (start, end, text) in enumerate(rows, start=1):
+        lines.append(str(index))
+        lines.append(f"{_format_srt_time(start)} --> {_format_srt_time(end)}")
+        lines.append(text.strip())
+        lines.append("")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+    return path
+
+
+def _supadata_chunks_to_rows(data: dict) -> list[tuple[float, float, str]]:
+    """Convert Supadata ``content`` chunks to SRT rows.
+
+    ``offset`` / ``duration`` are milliseconds. This mirrors youtube-digest:
+    strip the ``>>`` speaker marker and skip now-empty chunks.
+    """
+    rows: list[tuple[float, float, str]] = []
+    if not isinstance(data, dict):
+        return rows
+    for chunk in data.get("content") or []:
+        if not isinstance(chunk, dict):
+            continue
+        text = str(chunk.get("text") or "").replace(">>", "").strip()
+        if not text:
+            continue
+        start = float(chunk.get("offset") or 0) / 1000.0
+        duration = float(chunk.get("duration") or 0) / 1000.0
+        end = start + max(duration, 0.2)
+        rows.append((start, end, text))
+    return rows
+
+
+def _poll_supadata_job(
+    client: httpx.Client, job_id: str, api_key: str
+) -> dict:
+    """Poll a Supadata async transcript job (port of youtube-digest)."""
+    if not job_id:
+        raise DownloadError("Supadata returned an empty transcript job id")
+    url = f"{SUPADATA_TRANSCRIPT_URL}/{job_id}"
+    for _ in range(SUPADATA_POLL_MAX_ATTEMPTS):
+        time.sleep(SUPADATA_POLL_INTERVAL)
+        response = client.get(url, headers={"x-api-key": api_key})
+        if not response.is_success:
+            raise DownloadError(
+                f"Supadata job polling failed: HTTP {response.status_code}"
+            )
+        data = response.json()
+        if not isinstance(data, dict):
+            raise DownloadError("Supadata returned an unexpected job payload")
+        status = data.get("status")
+        if status == "completed":
+            return data
+        if status == "failed":
+            raise DownloadError("Supadata transcript processing failed")
+    raise DownloadError("Supadata transcript processing timed out")
+
+
+def _fetch_supadata_subtitle(
+    video_id: str, output_dir: Path
+) -> DownloadedSubtitle | None:
+    """Fetch native YouTube subtitles from Supadata (youtube-digest style).
+
+    English is requested explicitly, matching youtube-digest's
+    ``lang=en&mode=native`` request. No key or no native track returns None
+    so the caller can fall back to yt-dlp subtitles or ASR.
+    """
+    api_key = os.getenv("SUPADATA_API_KEY", "").strip()
+    if not api_key:
+        return None
+
+    params = {
+        "url": f"https://www.youtube.com/watch?v={video_id}",
+        "text": "false",
+        "lang": "en",
+        "mode": "native",
+    }
+    headers = {
+        "x-api-key": api_key,
+        "User-Agent": USER_AGENT,
+    }
+    try:
+        with httpx.Client(
+            follow_redirects=True,
+            timeout=httpx.Timeout(30.0),
+            **_client_proxy_kwargs(),
+        ) as client:
+            response = client.get(
+                SUPADATA_TRANSCRIPT_URL, params=params, headers=headers
+            )
+
+            if response.status_code == 202:
+                job = response.json()
+                data = _poll_supadata_job(
+                    client, str(job.get("jobId") or ""), api_key
+                )
+            elif response.status_code in (206, 404):
+                return None
+            elif not response.is_success:
+                logger.warning(
+                    "Supadata transcript request failed: HTTP %s",
+                    response.status_code,
+                )
+                return None
+            else:
+                data = response.json()
+    except (httpx.HTTPError, DownloadError, ValueError) as e:
+        logger.warning("Supadata transcript unavailable: %s", e)
+        return None
+
+    rows = _supadata_chunks_to_rows(data)
+    if not rows:
+        return None
+
+    language = str(data.get("lang") or "en")
+    path = _write_srt(
+        output_dir / f"{video_id}.{language}.srt",
+        rows,
+    )
+    return DownloadedSubtitle(path=path, language=language, source="supadata")
+
+
+def _bilibili_cookie_value() -> str:
+    """Return a Cookie header value for Bilibili API calls."""
+    raw = _platform_env(
+        "bilibili", "BILIBILI_COOKIE", "BILIBILI_COOKIE_FILE"
+    )
+    if not raw:
+        return ""
+    candidate = Path(raw).expanduser()
+    if candidate.is_file():
+        cookies: list[str] = []
+        for line in candidate.read_text(encoding="utf-8").splitlines():
+            parts = line.split("\t")
+            if len(parts) < 7 or not parts[0].endswith("bilibili.com"):
+                continue
+            cookies.append(f"{parts[5]}={parts[6]}")
+        return "; ".join(cookies)
+    return raw
+
+
+def _bilibili_headers() -> dict[str, str]:
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Referer": "https://www.bilibili.com",
+    }
+    cookie = _bilibili_cookie_value()
+    if cookie:
+        headers["Cookie"] = cookie
+    return headers
+
+
+def _bilibili_cid(video_id: str, page: int = 1) -> int | None:
+    """Resolve the CID for a Bilibili video/page."""
+    try:
+        with httpx.Client(
+            follow_redirects=True,
+            timeout=httpx.Timeout(20.0),
+            **_client_proxy_kwargs(),
+        ) as client:
+            response = client.get(
+                BILIBILI_PAGELIST_URL,
+                params={"bvid": video_id, "jsonp": "jsonp"},
+                headers=_bilibili_headers(),
+            )
+            if not response.is_success:
+                return None
+            payload = response.json()
+            if not isinstance(payload, dict):
+                return None
+            pages = payload.get("data") or []
+            if not pages:
+                return None
+            page = max(1, min(page, len(pages)))
+            cid = pages[page - 1].get("cid")
+            return int(cid) if cid else None
+    except (httpx.HTTPError, ValueError):
+        return None
+
+
+def _bilibili_subtitle_options(data: dict) -> list[dict]:
+    """Normalise Bilibili subtitle entries (Bilitato's option logic)."""
+    if not isinstance(data, dict):
+        return []
+    raw_items = (
+        ((data.get("data") or {}).get("subtitle") or {}).get("subtitles")
+        or []
+    )
+    if not isinstance(raw_items, list):
+        return []
+    options: list[dict] = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        raw_url = str(item.get("subtitle_url") or item.get("url") or "").strip()
+        if not raw_url:
+            continue
+        url = f"https:{raw_url}" if raw_url.startswith("//") else raw_url
+        lan = str(item.get("lan") or "").strip()
+        lan_doc = str(item.get("lan_doc") or "").strip()
+        options.append(
+            {
+                "id": lan or lan_doc or f"subtitle-{len(options) + 1}",
+                "label": lan_doc or lan or f"字幕 {len(options) + 1}",
+                "lan": lan,
+                "url": url,
+            }
+        )
+    return options
+
+
+def _bilibili_subtitle_language(raw: str | None) -> str | None:
+    text = f"{raw or ''} {raw or ''}".lower()
+    if re.search(r"zh|cn|中文|汉语|简体|繁體", text):
+        return "zh"
+    if re.search(r"en|english|英文", text):
+        return "en"
+    return (raw or "").strip() or None
+
+
+def _pick_bilibili_subtitle(options: list[dict]) -> dict | None:
+    if not options:
+        return None
+    for lang in ("zh", "en"):
+        for option in options:
+            if _bilibili_subtitle_language(
+                option.get("lan") or option.get("id")
+            ) == lang:
+                return option
+    return options[0]
+
+
+def _bilibili_subtitle_body(data: dict) -> list[dict]:
+    """Extract ``body`` rows from Bilibili subtitle JSON responses."""
+    if not isinstance(data, dict):
+        return []
+    candidates = (
+        data.get("body"),
+        (data.get("data") or {}).get("body"),
+        (data.get("result") or {}).get("body"),
+        data.get("content"),
+    )
+    for candidate in candidates:
+        if isinstance(candidate, list):
+            return candidate
+    return []
+
+
+def _bilibili_rows_to_srt_rows(
+    body: list[dict],
+) -> list[tuple[float, float, str]]:
+    rows: list[tuple[float, float, str]] = []
+    for row in body:
+        if not isinstance(row, dict):
+            continue
+        text = str(row.get("content") or "").strip()
+        if not text:
+            continue
+        start = float(row.get("from") or 0)
+        raw_end = row.get("to")
+        end = float(raw_end) if raw_end is not None else start + 3.0
+        if end <= start:
+            end = start + 3.0
+        rows.append((start, end, text))
+    return rows
+
+
+def _fetch_bilibili_subtitle(
+    video_id: str, output_dir: Path, page: int = 1
+) -> DownloadedSubtitle | None:
+    """Fetch Bilibili official subtitles (Bilitato's API flow)."""
+    cid = _bilibili_cid(video_id, page=page)
+    if not cid:
+        return None
+
+    try:
+        with httpx.Client(
+            follow_redirects=True,
+            timeout=httpx.Timeout(20.0),
+            **_client_proxy_kwargs(),
+        ) as client:
+            response = client.get(
+                BILIBILI_PLAYER_V2_URL,
+                params={"bvid": video_id, "cid": cid},
+                headers=_bilibili_headers(),
+            )
+            if not response.is_success:
+                return None
+            data = response.json()
+            options = _bilibili_subtitle_options(data)
+            option = _pick_bilibili_subtitle(options)
+            if option is None:
+                return None
+
+            subtitle_response = client.get(
+                option["url"],
+                headers=_bilibili_headers(),
+            )
+            if not subtitle_response.is_success:
+                return None
+            body = _bilibili_subtitle_body(subtitle_response.json())
+    except (httpx.HTTPError, ValueError):
+        return None
+
+    rows = _bilibili_rows_to_srt_rows(body)
+    if not rows:
+        return None
+
+    language = (
+        _bilibili_subtitle_language(option.get("lan") or option.get("id"))
+        or "und"
+    )
+    path = _write_srt(
+        output_dir / f"{video_id}.{language}.srt",
+        rows,
+    )
+    return DownloadedSubtitle(path=path, language=language, source="bilibili")
+
+
+def _subtitle_language_from_filename(path: Path, video_id: str) -> str:
+    name = path.name
+    if name == f"{video_id}.srt" or name == f"{video_id}.vtt":
+        return "und"
+    prefix = f"{video_id}."
+    if not name.startswith(prefix):
+        return "und"
+    stem = name[len(prefix):].rsplit(".", 1)[0]
+    return _bilibili_subtitle_language(stem) or stem.lower()
+
+
+def _find_local_subtitle(
+    output_dir: Path,
+    video_id: str,
+    preferred_languages: tuple[str, ...] = ("zh", "en"),
+) -> DownloadedSubtitle | None:
+    """Pick the best yt-dlp-written subtitle file next to the video."""
+    candidates = [
+        path
+        for path in output_dir.glob(f"{video_id}.*")
+        if path.suffix.lower() in _SUBTITLE_SUFFIXES and path.stat().st_size > 0
+    ]
+    if not candidates:
+        return None
+
+    def sort_key(path: Path) -> tuple[int, int, int]:
+        lang = _subtitle_language_from_filename(path, video_id)
+        if lang in preferred_languages:
+            lang_rank = preferred_languages.index(lang)
+        else:
+            lang_rank = len(preferred_languages)
+        srt_rank = 0 if path.suffix.lower() == ".srt" else 1
+        return (lang_rank, srt_rank, -path.stat().st_mtime)
+
+    best = min(candidates, key=sort_key)
+    return DownloadedSubtitle(
+        path=best,
+        language=_subtitle_language_from_filename(best, video_id),
+        source="yt-dlp",
+    )
+
+
+def _lookup_subtitle(
+    platform: str,
+    video_id: str,
+    output_dir: Path,
+    bilibili_page: int = 1,
+) -> DownloadedSubtitle | None:
+    """Find an online subtitle for a downloaded video, or return None."""
+    if not video_id:
+        return None
+
+    if platform == "youtube":
+        supadata = _fetch_supadata_subtitle(video_id, output_dir)
+        if supadata is not None:
+            return supadata
+        return _find_local_subtitle(
+            output_dir, video_id, preferred_languages=("en", "zh")
+        )
+
+    if platform == "bilibili":
+        bilibili = _fetch_bilibili_subtitle(
+            video_id, output_dir, page=bilibili_page
+        )
+        if bilibili is not None:
+            return bilibili
+
+    return _find_local_subtitle(output_dir, video_id)
+
+
+def _subtitle_fields(
+    subtitle: DownloadedSubtitle | None,
+) -> tuple[Path | None, str | None, str | None]:
+    if subtitle is None:
+        return None, None, None
+    return subtitle.path, subtitle.language, subtitle.source
+
+
 def _download_with_ytdlp(
     url: str,
     platform: str,
     output_dir: Path,
     cookiefile: Path | None = None,
+    bilibili_page: int = 1,
 ) -> DownloadedVideo:
     cleanup_paths: list[Path] = []
     if cookiefile is None:
@@ -299,6 +755,13 @@ def _download_with_ytdlp(
         raise DownloadError(
             f"{platform} 视频下载完成，但未找到输出文件（video_id={video_id}）"
         )
+    subtitle = _lookup_subtitle(
+        platform,
+        video_id,
+        output_dir,
+        bilibili_page=bilibili_page,
+    )
+    subtitle_path, subtitle_language, subtitle_source = _subtitle_fields(subtitle)
     return DownloadedVideo(
         video_path=video_path,
         source_url=url,
@@ -307,6 +770,9 @@ def _download_with_ytdlp(
         title=str(info.get("title") or ""),
         duration=float(info["duration"]) if info.get("duration") else None,
         thumbnail=info.get("thumbnail"),
+        subtitle_path=subtitle_path,
+        subtitle_language=subtitle_language,
+        subtitle_source=subtitle_source,
     )
 
 
@@ -318,16 +784,26 @@ def _download_with_ytdlp(
 def _download_bilibili(url: str, output_dir: Path) -> DownloadedVideo:
     apply_bilibili_dm_img_patch()
     video_id = extract_video_id(url, "bilibili")
+    page = int((parse_qs(urlparse(url).query).get("p") or ["1"])[0] or 1)
     existing = _existing_file(output_dir, video_id or "")
     if existing:
         print(f"⏭️  已下载过 B 站视频：{existing.name}")
+        subtitle = _lookup_subtitle(
+            "bilibili", video_id or "", output_dir, bilibili_page=page
+        )
+        subtitle_path, subtitle_language, subtitle_source = _subtitle_fields(subtitle)
         return DownloadedVideo(
             video_path=existing,
             source_url=url,
             platform="bilibili",
             video_id=video_id or "",
+            subtitle_path=subtitle_path,
+            subtitle_language=subtitle_language,
+            subtitle_source=subtitle_source,
         )
-    return _download_with_ytdlp(url, "bilibili", output_dir)
+    return _download_with_ytdlp(
+        url, "bilibili", output_dir, bilibili_page=page
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -340,11 +816,16 @@ def _download_youtube(url: str, output_dir: Path) -> DownloadedVideo:
     existing = _existing_file(output_dir, video_id or "")
     if existing:
         print(f"⏭️  已下载过 YouTube 视频：{existing.name}")
+        subtitle = _lookup_subtitle("youtube", video_id or "", output_dir)
+        subtitle_path, subtitle_language, subtitle_source = _subtitle_fields(subtitle)
         return DownloadedVideo(
             video_path=existing,
             source_url=url,
             platform="youtube",
             video_id=video_id or "",
+            subtitle_path=subtitle_path,
+            subtitle_language=subtitle_language,
+            subtitle_source=subtitle_source,
         )
     return _download_with_ytdlp(url, "youtube", output_dir)
 
