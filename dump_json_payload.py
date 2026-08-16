@@ -68,8 +68,24 @@ config = ProviderConfig(
     api_key="sk-placeholder",
     model="Qwen/Qwen3-VL-8B-Instruct",
 )
+def _trim(obj):
+    """Replace base64 image payloads with a placeholder so the dump prints
+    a manageable size. Non-image text content is preserved verbatim."""
+    if isinstance(obj, dict):
+        if obj.get("type") == "image_url":
+            url = obj.get("image_url", {}).get("url", "")
+            if url.startswith("data:") and "," in url:
+                prefix = url.split(",", 1)[0]
+                obj["image_url"]["url"] = f"{prefix},<...base64...>"
+            return obj
+        return {k: _trim(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_trim(x) for x in obj]
+    return obj
+
+
 url, headers, body_json = _build_openai_request_interleaved(config, all_segments, max_tokens=8192)
 print("URL:", url)
 print("HEADERS:", json.dumps(headers, indent=2))
 print("BODY:")
-print(json.dumps(body_json, indent=2, ensure_ascii=False))
+print(json.dumps(_trim(body_json), indent=2, ensure_ascii=False))
