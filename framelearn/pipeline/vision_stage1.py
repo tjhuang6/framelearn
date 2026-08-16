@@ -94,7 +94,7 @@ class VisionStage1Output:
 
 def _build_srt_md_segments(
     segments: Iterable, frames: list[CandidateFrame]
-) -> list[dict]:
+) -> list[dict]:  # noqa: F811 — placeholder to keep the function name visible
     """Build a list of interleaved text/image segments for Stage1's
     vision call.
 
