@@ -2,4 +2,9 @@
 # FrameLearn pre-commit hook:
 # 每次执行 git commit 前，自动把当前工作区所有编辑、新增、删除
 # （git add -A）纳入本次提交，避免漏掉文件。
-git add -A
+# 排除大型媒体文件与 macOS 元数据，避免把视频/音频误提交进仓库。
+git add -A -- . \
+  ':(exclude)*.mp4' ':(exclude)*.mkv' ':(exclude)*.avi' ':(exclude)*.mov' \
+  ':(exclude)*.flv' ':(exclude)*.wmv' ':(exclude)*.webm' \
+  ':(exclude)*.m4a' ':(exclude)*.mp3' ':(exclude)*.aac' ':(exclude)*.wav' \
+  ':(exclude).DS_Store'
