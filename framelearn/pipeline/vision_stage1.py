@@ -35,7 +35,7 @@ from framelearn.provider_adapter import (
 )
 
 
-STAGE1_PROMPT = """你是视频字幕整理助手。给你一段已清洗的 SRT 和该段内的启发式截帧列表。
+STAGE1_PROMPT = """你是视频字幕整理助手。会给你一份"已配图的 SRT markdown"——字幕段按时间顺序排好，每段后面可能跟着一张或多张该时间点的启发式截图（用 `![](path)` 标记）。
 
 ## 任务
 
@@ -43,25 +43,19 @@ STAGE1_PROMPT = """你是视频字幕整理助手。给你一段已清洗的 SRT
 
 1. **生成markdown**：合并 SRT 段为连贯的叙述段落，去掉时间戳和序号，使表达通畅。尽量不要出现第一人称。
 
-2. **决定每张启发式截图的去留 / 调整 / 重截 / 删除 **：
-   - 内容对得上 + 时间点对 → 保留（needs_extract=false，source_frame_path 引用 SRT
-_MD 里出现过的图片路径）
+2. **决定每张启发式截图的去留 / 调整 / 重截 / 删除**：
+   - 内容对得上 + 时间点对 → 保留（needs_extract=false，source_frame_path 引用 SRT_MD 里出现过的图片路径）
    - 时间点差 ±2 秒 → 调整 timestamp，source_frame_path 仍指向同一张图
-   - 内容真不行（黑屏、过渡帧、模糊）→ 重截（needs_extract=true，source_frame_path
-=null，给新 timestamp）
-   - 截屏多余,或者质量太差 -> 删除（needs_extract=false，source_frame_path=null）  
+   - 内容真不行（黑屏、过渡帧、模糊）→ 重截（needs_extract=true，source_frame_path=null，给新 timestamp）
+   - 截屏多余,或者质量太差 -> 删除（needs_extract=false，source_frame_path=null）
 
-
-3. **新增截图**（可选）：启发式漏了老师提到的关键图（PPT / 代码 / 表格 / 屏幕），n
-eeds_extract=true + 新 timestamp。
-
+3. **新增截图**（可选）：启发式漏了老师提到的关键图（PPT / 代码 / 表格 / 屏幕），needs_extract=true + 新 timestamp。
 
 ## 输入
 
 <SRT_MD>
 {chunk_text}
 </SRT_MD>
-
 
 ## 输出 JSON（严格格式，不要解释）
 
@@ -154,23 +148,40 @@ def _parse_stage1(raw: str, frames: list[CandidateFrame]) -> VisionStage1Output 
         src = item.get("source_frame_path")
         reason = str(item.get("reason", ""))
 
+        # Four valid output states per the prompt:
+        #   needs_extract=true,  src=null          → 重截（ffmpeg 新截一张）
+        #   needs_extract=false, src=<known path>  → 保留（用现有启发式帧）
+        #   needs_extract=false, src=null          → 删除（不输出，不进 Stage2 / MD）
+        #   needs_extract=false, src=<unknown>     → 删除（幻觉路径，丢掉比误截更安全）
         if needs_extract:
             src = None
-        elif src not in frame_paths:
-            # LLM claimed to reuse a heuristic frame but the path doesn't
-            # match any — treat as needs_extract.
-            needs_extract = True
-            src = None
-
-        parsed.append(
-            SelectedTimestamp(
-                srt_id=srt_id,
-                timestamp=timestamp,
-                needs_extract=needs_extract,
-                source_frame_path=src,
-                reason=reason,
+            parsed.append(
+                SelectedTimestamp(
+                    srt_id=srt_id,
+                    timestamp=timestamp,
+                    needs_extract=True,
+                    source_frame_path=None,
+                    reason=reason,
+                )
             )
-        )
+        elif src in frame_paths:
+            parsed.append(
+                SelectedTimestamp(
+                    srt_id=srt_id,
+                    timestamp=timestamp,
+                    needs_extract=False,
+                    source_frame_path=src,
+                    reason=reason,
+                )
+            )
+        else:
+            # needs_extract=False with null or unknown path → 删除
+            get_reporter().record_fallback(
+                "vision_stage1.frame_dropped",
+                f"srt_id={srt_id} 的启发式帧被删除（path={src!r}）",
+            )
+            continue
+
     return VisionStage1Output(blog_markdown=blog, selected_timestamps=parsed)
 
 
