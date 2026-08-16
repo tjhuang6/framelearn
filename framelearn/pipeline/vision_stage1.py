@@ -92,50 +92,59 @@ class VisionStage1Output:
 
 
 def _format_srt_md(segments: Iterable, frames: list[CandidateFrame]) -> str:
-    """Render SRT_MD: numbered subtitle blocks, each followed by any
-    heuristic frames that the frame distributor placed in its window.
+    """Render SRT_MD: numbered subtitle blocks with heuristic frames
+    inserted after their nearest segment.
 
-    A frame belongs to the segment whose index is its position in
-    ``frames`` (heuristic extractor keeps order, distributor preserves
-    it). The resulting markdown looks like::
+    Each frame's ``timestamp_sec`` is matched to the segment whose
+    midpoint is closest. Multiple frames may attach to the same
+    segment. Result::
 
         1. 老师讲到卷积层...
 
-        ![](src/frame_00h06m02s700ms_scene_001.jpg)
+        ![](src/frame_..._scene_001.jpg)
+        ![](src/frame_..._interval_013.jpg)
 
         2. 接下来看 padding...
 
         3. ...
 
-        ![](src/frame_..._scene_002.jpg)
+    The model reads the image markdown to know which frame the vision
+    encoder passed at each point — VisionStage1 sends ``image_paths``
+    in the same order the frames appear here.
     """
-    lines: list[str] = []
-    # We iterate segments and consume frames sequentially — each frame
-    # is attributed to the segment index that precedes it (1-based).
-    frame_iter = iter(frames)
-    pending: list[CandidateFrame] = []
+    # Materialize segments into (index, text, mid_sec). mid_sec = the
+    # segment's center timestamp (used as the "nearest segment" anchor).
+    seg_rows: list[tuple[int, str, float]] = []
     for i, seg in enumerate(segments, start=1):
         text = getattr(seg, "text", "") or ""
-        lines.append(f"{i}. {text}")
-        # Drain any frames whose index == i (the heuristic extractor
-        # uses 1-based segment ids matching the chunk's segments list).
-        # We accept both 0-based and 1-based srt_id_hint by checking
-        # the frame's position in the frame list: i-1 == position.
-        while True:
-            try:
-                f = next(frame_iter)
-            except StopIteration:
-                break
-            # Heuristic frames don't carry an srt_id — they're attributed
-            # positionally. Attach to the current segment.
-            pending.append(f)
-        for f in pending:
-            lines.append(f"![]({f.path})")
-        pending.clear()
-    # If any frames remain (shouldn't normally happen), append them.
-    for f in pending:
-        lines.append(f"![]({f.path})")
-    return "\n\n".join(lines)
+        start = float(getattr(seg, "start", 0.0) or 0.0)
+        end = float(getattr(seg, "end", start) or start)
+        mid = (start + end) / 2.0
+        seg_rows.append((i, text, mid))
+
+    # Bucket frames by their nearest segment index.
+    attached: dict[int, list[str]] = {i: [] for i, _, _ in seg_rows}
+    for f in frames:
+        if not seg_rows:
+            attached.setdefault(0, []).append(f.path)
+            continue
+        nearest_i = min(
+            seg_rows,
+            key=lambda row: abs(row[2] - f.timestamp_sec),
+        )[0]
+        attached[nearest_i].append(f.path)
+
+    # Render: each segment's text, then any attached image refs.
+    chunks: list[str] = []
+    for i, text, _ in seg_rows:
+        chunks.append(f"{i}. {text}")
+        for path in attached.get(i, []):
+            chunks.append(f"![]({path})")
+    # Any frames we couldn't attach (no segments) get tacked on the end.
+    leftovers = attached.get(0, []) if not seg_rows else []
+    for path in leftovers:
+        chunks.append(f"![]({path})")
+    return "\n\n".join(chunks)
 
 
 def _parse_stage1(raw: str, frames: list[CandidateFrame]) -> VisionStage1Output | None:
