@@ -55,7 +55,7 @@ STAGE1_PROMPT = """你是视频字幕整理助手。会给你一份"已配图的
 
 <SRT_MD>
 {chunk_text}
-</SRT_MD>
+</SRT_MD> 
 
 ## 输出 JSON（严格格式，不要解释）
 
@@ -91,29 +91,32 @@ class VisionStage1Output:
     selected_timestamps: list[SelectedTimestamp]
 
 
-def _format_srt_md(segments: Iterable, frames: list[CandidateFrame]) -> str:
-    """Render SRT_MD: numbered subtitle blocks with heuristic frames
-    inserted after their nearest segment.
+def _build_srt_md_segments(
+    segments: Iterable, frames: list[CandidateFrame]
+) -> list[dict]:
+    """Build a list of interleaved text/image segments for Stage1's
+    vision call.
 
-    Each frame's ``timestamp_sec`` is matched to the segment whose
-    midpoint is closest. Multiple frames may attach to the same
-    segment. Result::
+    Each frame is attached to the subtitle segment whose midpoint is
+    closest in time, then rendered as ``{type: text, text: ...}`` /
+    ``{type: image, path: ...}`` segments in document order. The
+    resulting segment list, when sent via
+    :func:`call_llm_async_interleaved`, lets the model pair each
+    ``![picture N](path)`` markdown reference with the N-th image in
+    the multimodal content array — same trick Anthropic/OpenAI vision
+    docs recommend.
 
-        1. 老师讲到卷积层...
+    Returns segments like::
 
-        ![](src/frame_..._scene_001.jpg)
-        ![](src/frame_..._interval_013.jpg)
-
-        2. 接下来看 padding...
-
-        3. ...
-
-    The model reads the image markdown to know which frame the vision
-    encoder passed at each point — VisionStage1 sends ``image_paths``
-    in the same order the frames appear here.
+        [
+          {"type": "text", "text": "1. 老师讲到卷积层..."},
+          {"type": "image", "path": "src/frame_..._scene_001.jpg"},
+          {"type": "image", "path": "src/frame_..._interval_013.jpg"},
+          {"type": "text", "text": "2. 接下来看 padding..."},
+          ...
+        ]
     """
-    # Materialize segments into (index, text, mid_sec). mid_sec = the
-    # segment's center timestamp (used as the "nearest segment" anchor).
+    # Materialize segments into (index, text, mid_sec).
     seg_rows: list[tuple[int, str, float]] = []
     for i, seg in enumerate(segments, start=1):
         text = getattr(seg, "text", "") or ""
@@ -122,29 +125,37 @@ def _format_srt_md(segments: Iterable, frames: list[CandidateFrame]) -> str:
         mid = (start + end) / 2.0
         seg_rows.append((i, text, mid))
 
-    # Bucket frames by their nearest segment index.
-    attached: dict[int, list[str]] = {i: [] for i, _, _ in seg_rows}
+    # Bucket frames by their nearest segment index (preserving input order).
+    attached: dict[int, list[CandidateFrame]] = {i: [] for i, _, _ in seg_rows}
     for f in frames:
         if not seg_rows:
-            attached.setdefault(0, []).append(f.path)
+            attached.setdefault(0, []).append(f)
             continue
         nearest_i = min(
             seg_rows,
             key=lambda row: abs(row[2] - f.timestamp_sec),
         )[0]
-        attached[nearest_i].append(f.path)
+        attached[nearest_i].append(f)
 
-    # Render: each segment's text, then any attached image refs.
-    chunks: list[str] = []
+    # Build interleaved segments. Each segment line carries the picture
+    # label so the model can map markdown `![picture N](path)` back to
+    # the N-th image in the content array.
+    out: list[dict] = []
+    pic_counter = 0
     for i, text, _ in seg_rows:
-        chunks.append(f"{i}. {text}")
-        for path in attached.get(i, []):
-            chunks.append(f"![]({path})")
+        out.append({"type": "text", "text": f"{i}. {text}"})
+        for f in attached.get(i, []):
+            pic_counter += 1
+            out.append({"type": "image", "path": f.path, "label": f"picture {pic_counter}", "src_path": f.path, "timestamp_sec": f.timestamp_sec})
+            # Inject the markdown reference right after the image so the
+            # model sees it positionally adjacent to the image.
+            out.append({"type": "text", "text": f"![picture {pic_counter}]({f.path})  *timestamp {f.timestamp_sec:.1f}s*"})
     # Any frames we couldn't attach (no segments) get tacked on the end.
-    leftovers = attached.get(0, []) if not seg_rows else []
-    for path in leftovers:
-        chunks.append(f"![]({path})")
-    return "\n\n".join(chunks)
+    for f in attached.get(0, []):
+        pic_counter += 1
+        out.append({"type": "image", "path": f.path, "label": f"picture {pic_counter}", "src_path": f.path, "timestamp_sec": f.timestamp_sec})
+        out.append({"type": "text", "text": f"![picture {pic_counter}]({f.path})  *timestamp {f.timestamp_sec:.1f}s*"})
+    return out
 
 
 def _parse_stage1(raw: str, frames: list[CandidateFrame]) -> VisionStage1Output | None:
