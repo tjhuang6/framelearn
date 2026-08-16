@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-08-16
+goal: 为文本模型与视觉模型提供统一入口，由工厂函数根据 settings.toml/.env 决定具体 provider/model；协议只使用非
+  Responses 格式（OpenAI Chat Completions / Anthropic Messages / Gemini
+  generateContent），并借鉴 cc-switch 的模型目录与供应商预置设计。

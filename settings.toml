@@ -10,7 +10,14 @@
 # 统一使用 API 模式（直接调用 LLM API）
 text_mode = "api"
 
-# 文本模型 provider
+# 文本模型 provider（统一工厂 framelearn.llm 会读取此值）
+# 可选：deepseek / minimax / claude / openai / openrouter /
+#       kimi / moonshot / zhipu / siliconflow / gemini / dashscope
+# 所有内置 provider 都走非 Responses 协议：
+#   openai_chat（/chat/completions）、anthropic（/v1/messages）、
+#   gemini（:generateContent）
+# 若 MiniMax 有独立 key，可改成 provider = "minimax" 并在 .env 设置
+# MINIMAX_API_KEY；当前配置继续使用 claude 协议入口 + TEXT_API_KEY。
 provider = "claude"
 
 # 文本模型
@@ -29,7 +36,11 @@ base_url = "https://api.minimaxi.com/anthropic"
 # 统一使用 API 模式
 vision_mode = "api"
 
-# Vision API 配置
+# Vision API 配置（统一工厂 framelearn.llm 会读取此值）
+# vision_provider 可选：siliconflow / minimax / claude / openai /
+#   openrouter / kimi / zhipu / gemini / dashscope
+# 注意：已知 text-only 模型（如 deepseek-chat）会被工厂拒绝。
+# 所有内置 provider 都走非 Responses 协议。
 vision_provider = "siliconflow"
 vision_model = "Qwen/Qwen3-VL-8B-Instruct"
 

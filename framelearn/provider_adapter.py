@@ -7,7 +7,6 @@ through a unified call_llm() interface. Internally branches on provider type:
   - "openai"  → OpenAI-compatible API (default for DeepSeek, Kimi, etc.)
 """
 
-import asyncio
 import base64
 import os
 from dataclasses import dataclass
@@ -16,66 +15,40 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 
+from framelearn.llm.catalog import (
+    PROVIDER_PRESETS,
+    normalize_provider_key,
+    provider_display_names,
+)
+
 load_dotenv()
 
 
 # ---------------------------------------------------------------------------
-# Provider definitions (mirrors Bilitato PROVIDERS object)
+# Provider definitions
 # ---------------------------------------------------------------------------
+# Provider presets live in framelearn.llm.catalog, mirroring cc-switch's
+# piProviderPresets. PROVIDERS below is the legacy wire-protocol view consumed
+# by the request dispatchers. All built-in presets are non-Responses formats:
+#   openai_chat → "openai"  (POST /chat/completions)
+#   anthropic   → "claude"  (POST /v1/messages)
+#   gemini      → "google"  (POST /models/...:generateContent)
+# There is intentionally no "responses" wire entry here.
+
+_API_FORMAT_TO_WIRE_TYPE = {
+    "openai_chat": "openai",
+    "anthropic": "claude",
+    "gemini": "google",
+}
 
 PROVIDERS: dict[str, dict] = {
-    # Per-provider metadata only — model names live in settings.toml,
-    # not in code. base_url is the canonical endpoint (kept here so the
-    # config loader can resolve a default without forcing users to copy
-    # URLs into TOML); override via settings.toml when needed.
-    "gemini": {
-        "name": "Google Gemini",
-        "base_url": "https://generativelanguage.googleapis.com/v1beta/",
-        "type": "google",
-        "reg_url": "https://aistudio.google.com/apikey",
-    },
-    "deepseek": {
-        "name": "DeepSeek",
-        "base_url": "https://api.deepseek.com/v1/",
-        "type": "openai",  # 用 chat/completions，不用 Responses API
-        "reg_url": "https://platform.deepseek.com/api_keys",
-    },
-    "openai": {
-        "name": "OpenAI",
-        "base_url": "https://api.openai.com/v1/",
-        "type": "openai",
-        "reg_url": "https://platform.openai.com/api-keys",
-    },
-    "claude": {
-        "name": "Claude (Anthropic)",
-        "base_url": "https://api.anthropic.com",
-        "type": "claude",
-        "reg_url": "https://console.anthropic.com/settings/keys",
-    },
-    "openrouter": {
-        "name": "OpenRouter",
-        "base_url": "https://openrouter.ai/api/v1/",
-        "type": "openai",
-        "reg_url": "https://openrouter.ai/settings/keys",
-    },
-    "kimi": {
-        "name": "Moonshot (Kimi)",
-        "base_url": "https://api.moonshot.cn/v1/",
-        "type": "openai",
-        "reg_url": "https://platform.moonshot.cn/console/api-keys",
-    },
-    "zhipu": {
-        "name": "智谱 AI",
-        "base_url": "https://open.bigmodel.cn/api/paas/v4/",
-        "type": "openai",
-        "reg_url": "https://open.bigmodel.cn/usercenter/apikeys",
-    },
-    "siliconflow": {
-        "name": "SiliconFlow",
-        "base_url": "https://api.siliconflow.cn/v1/",
-        "type": "openai",
-        "reg_url": "https://siliconflow.cn/",
-    },
+    preset.key: {
+        "name": preset.name,
+        "base_url": preset.base_url,
+        "type": _API_FORMAT_TO_WIRE_TYPE[preset.api_format],
+        "reg_url": preset.api_key_url or "",
+    }
+    for preset in PROVIDER_PRESETS.values()
 }
 
 
@@ -166,12 +139,13 @@ def load_text_config() -> ProviderConfig:
     Environment overrides (matching the documented ``.env`` template):
         TEXT_PROVIDER, TEXT_MODEL, TEXT_BASE_URL, TEXT_API_KEY
     """
-    provider_key = _first_env_value("TEXT_PROVIDER") or _required(
-        "text.provider", "text LLM provider"
+    provider_key = normalize_provider_key(
+        _first_env_value("TEXT_PROVIDER") or _required("text.provider", "text LLM provider")
     )
     if provider_key not in PROVIDERS:
         raise ValueError(
-            f"Unknown text.provider: '{provider_key}'. Choose from: {', '.join(PROVIDERS)}"
+            f"Unknown text.provider: '{provider_key}'. "
+            f"Choose from: {', '.join(provider_display_names())}"
         )
     model = _first_env_value("TEXT_MODEL") or _required("text.model", "text LLM model")
     base_url = _first_env_value("TEXT_BASE_URL") or _resolve_base_url(
@@ -192,13 +166,15 @@ def load_vision_config() -> ProviderConfig:
     SiliconFlow reads SILICONFLOW_API_KEY first; other providers read
     ``<PROVIDER>_API_KEY`` then VISION_API_KEY.
     """
-    provider_key = _first_env_value("VISION_PROVIDER") or _required(
-        "vision.vision_provider", "vision provider"
+    provider_key = normalize_provider_key(
+        _first_env_value("VISION_PROVIDER") or _required(
+            "vision.vision_provider", "vision provider"
+        )
     )
     if provider_key not in PROVIDERS:
         raise ValueError(
             f"Unknown vision.vision_provider: '{provider_key}'. "
-            f"Choose from: {', '.join(PROVIDERS)}"
+            f"Choose from: {', '.join(provider_display_names())}"
         )
     model = _first_env_value("VISION_MODEL") or _required(
         "vision.vision_model", "vision model"
@@ -697,9 +673,15 @@ async def call_llm_async(
 
 
 def call_text_llm(prompt: str, max_tokens: int = 4096, timeout: int = 300) -> str:
-    """Call text LLM using TEXT_PROVIDER config from .env."""
-    config = load_text_config()
-    return call_llm(prompt, config, max_tokens=max_tokens, timeout=timeout)
+    """Call the configured text LLM through the unified ``framelearn.llm`` entry.
+
+    This legacy convenience wrapper now delegates to the provider factory so
+    every text call shares the same resolution/validation path as
+    ``complete("text", ...)``.
+    """
+    from framelearn.llm import complete_text
+
+    return complete_text(prompt, max_tokens=max_tokens, timeout=timeout)
 
 
 def call_vision_llm(
@@ -707,9 +689,46 @@ def call_vision_llm(
     images: list[str],
     max_tokens: int = 4096,
 ) -> str:
-    """Call vision LLM using VISION_PROVIDER config from .env."""
-    config = load_vision_config()
-    return call_llm(prompt, config, images=images, max_tokens=max_tokens)
+    """Call the configured vision LLM through the unified ``framelearn.llm`` entry."""
+    from framelearn.llm import complete_vision
+
+    return complete_vision(
+        prompt,
+        images,
+        max_tokens=max_tokens,
+    )
+
+
+async def call_text_llm_async(
+    prompt: str,
+    max_tokens: int = 4096,
+    timeout: int = 300,
+) -> str:
+    """Async text LLM convenience entry (mirrors :func:`call_text_llm`)."""
+    from framelearn.llm import complete_text_async
+
+    return await complete_text_async(
+        prompt,
+        max_tokens=max_tokens,
+        timeout=timeout,
+    )
+
+
+async def call_vision_llm_async(
+    prompt: str,
+    images: list[str],
+    max_tokens: int = 4096,
+    timeout: int = 300,
+) -> str:
+    """Async vision LLM convenience entry (mirrors :func:`call_vision_llm`)."""
+    from framelearn.llm import complete_vision_async
+
+    return await complete_vision_async(
+        prompt,
+        images=images,
+        max_tokens=max_tokens,
+        timeout=timeout,
+    )
 
 
 # ---------------------------------------------------------------------------

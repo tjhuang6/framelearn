@@ -103,6 +103,39 @@ SILICONFLOW_API_KEY=...
 
 完整字段见 [`settings.toml`](settings.toml) 和 [`.env.example`](.env.example)。
 
+## 统一模型入口（Python API）
+
+文本模型与视觉模型都通过 `framelearn.llm` 统一入口调用，由工厂函数根据 `settings.toml` / `.env` 决定具体 provider 和模型。所有内置 provider 都走非 Responses 协议：
+
+- `openai_chat` → `/chat/completions`（DeepSeek、OpenAI、OpenRouter、Kimi、智谱、SiliconFlow、DashScope）
+- `anthropic` → `/v1/messages`（Claude、MiniMax Anthropic 兼容端点）
+- `gemini` → `:generateContent`（Google Gemini）
+
+```python
+from framelearn.llm import complete, complete_async, create_llm_client
+
+# 统一入口：purpose 选择文本或视觉
+answer = complete("text", "解释一下卷积层")
+answer = complete("vision", "这张图适合做教材插图吗？", images=["frame.jpg"])
+answer = await complete_async("text", "总结这段字幕")
+
+# 工厂：显式拿到具体 client
+text_client = create_llm_client("text")      # 读取 [text] / TEXT_*
+vision_client = create_llm_client("vision")  # 读取 [vision] / VISION_*
+
+text_client.complete("写一段博客")
+await vision_client.complete_interleaved_async([
+    {"type": "text", "text": "看这张图"},
+    {"type": "image", "path": "frame.jpg"},
+])
+```
+
+- `provider` 支持别名，例如 `minimax`、`minimaxi`、`moonshot`、`anthropic`、`qwen`。
+- 模型能力目录来自 cc-switch 的 `piModelCatalog` 思路：已知 text-only 模型（如 `deepseek-chat`）被配置为视觉模型时，工厂会直接报错并列出 image-capable 候选。
+- 旧的 `provider_adapter.call_text_llm()` / `call_llm()` 等 API 保持兼容。
+
+## 使用
+
 ## 使用
 
 ```bash
