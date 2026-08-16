@@ -77,20 +77,28 @@ STAGE1_PROMPT = """你是视频字幕整理助手。会给你一份"已配图的
 
 
 
-## 真实例子（参考这一个范例的输入输出结构）
+## 真实例子
 
 输入 SRT_MD 长这样（vision API 会把每张图按位置插到对应 markdown 行旁边）：
 
 <SRT_MD>
-1. 老师讲到 RGB 三通道，一张宽 224 的图片是 3×224×224，三层数字矩阵对应 RGB。
+00:00:39,000 --> 00:00:45,000
+这个数和这个数去相乘，这个数和这去相乘，这个和这个对吧？
 
-![picture 1](src/frame_00h00m00s000ms_interval_001.jpg)  *timestamp 0.0s*
 
-2. 接下来讲卷积核，3×3 的卷积核不是 9 个数相乘，是 27 个数相乘，因为有 3 层。
+00:00:45,000 --> 00:00:51,000
+这就是相乘，然后这个数又好哪个？
 
-3. 然后是 padding，zero padding 让卷积后特征图尺寸保持不变。
 
-![picture 2](src/frame_00h06m02s700ms_scene_001.jpg)  *timestamp 362.7s*
+[text]00:00:51,000 --> 00:00:56,000
+第3层这个数要和这个值去相乘。
+
+
+[text] ![picture 3](/Users/iwill/Documents/PythonProjects/FrameLearn/output/分类任务_30min_2/src/fram
+e_00h02m30s000ms_interval_006.jpg)
+
+
+[image] /Users/iwill/Documents/PythonPro类任务_30min_2/src/frame_00h02m30s000ms_interval_006.jpg
 </SRT_MD>
 
 期望输出 JSON：
@@ -182,9 +190,11 @@ def _build_srt_md_segments(
         )[0]
         attached[nearest_i].append(f)
 
-    # Build interleaved segments. Each segment line carries the picture
-    # label so the model can map markdown `![picture N](path)` back to
-    # the N-th image in the content array.
+    # Build interleaved segments. The markdown `![picture N](path)`
+    # marker is sent BEFORE the image, so the model reads "this is where
+    # picture N will appear" and then receives the N-th image right
+    # after — guaranteeing the order-based pairing between marker and
+    # image is unambiguous.
     out: list[dict] = []
     pic_counter = 0
     for i, text, start, end in seg_rows:
@@ -194,18 +204,19 @@ def _build_srt_md_segments(
         out.append({"type": "text", "text": f"{ts_header}\n{text}\n"})
         for f in attached.get(i, []):
             pic_counter += 1
-            out.append({"type": "image", "path": f.path})
+            # Marker first, image second.
             out.append(
                 {
                     "type": "text",
-                    "text": f"![picture {pic_counter}]({f.path})",
+                    "text": f"![picture {pic_counter}]({f.path})\n\n",
                 }
             )
+            out.append({"type": "image", "path": f.path})
     # Any frames we couldn't attach (no segments) get tacked on the end.
     for f in attached.get(0, []):
         pic_counter += 1
+        out.append({"type": "text", "text": f"![picture {pic_counter}]({f.path})\n\n"})
         out.append({"type": "image", "path": f.path})
-        out.append({"type": "text", "text": f"![picture {pic_counter}]({f.path})"})
     return out
 
 
