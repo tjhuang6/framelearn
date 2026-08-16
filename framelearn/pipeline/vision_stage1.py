@@ -58,7 +58,7 @@ STAGE1_PROMPT = """你是视频字幕整理助手。会给你一份"已配图的
 {chunk_text}
 </SRT_MD> 
 
-## 输出 JSON（严格格式，不要解释）
+## 输出 下述json格式 不要有任何多余的解释
 
 {{
   "blog_markdown": "## 标题\n\n[博客式段落...]",
@@ -74,6 +74,51 @@ STAGE1_PROMPT = """你是视频字幕整理助手。会给你一份"已配图的
 - needs_extract=false 时 source_frame_path 必须是输入 SRT_MD 里 `![](...)` 出现过的图片路径
 - timestamp 允许相对启发式帧调整 ±2 秒
 - 不要输出 markdown 之外的解释文字
+
+
+
+## 真实例子（参考这一个范例的输入输出结构）
+
+输入 SRT_MD 长这样（vision API 会把每张图按位置插到对应 markdown 行旁边）：
+
+<SRT_MD>
+1. 老师讲到 RGB 三通道，一张宽 224 的图片是 3×224×224，三层数字矩阵对应 RGB。
+
+![picture 1](src/frame_00h00m00s000ms_interval_001.jpg)  *timestamp 0.0s*
+
+2. 接下来讲卷积核，3×3 的卷积核不是 9 个数相乘，是 27 个数相乘，因为有 3 层。
+
+3. 然后是 padding，zero padding 让卷积后特征图尺寸保持不变。
+
+![picture 2](src/frame_00h06m02s700ms_scene_001.jpg)  *timestamp 362.7s*
+</SRT_MD>
+
+期望输出 JSON（picture 1 内容对得上段 1，picture 2 实际跟段 3 更近，模型自己判断）：
+
+```json
+{{
+  "blog_markdown": "## 图像数据的基本构成与卷积操作\n\n图像本质上由 RGB 三通道构成，每通道对应一个二维矩阵……（合并所有段的博客叙述）",
+  "selected_timestamps": [
+    {{"srt_id": 1, "timestamp": 0.0, "needs_extract": false, "source_frame_path": "src/frame_00h00m00s000ms_interval_001.jpg", "reason": "内容匹配，时间点准确"}},
+    {{"srt_id": 3, "timestamp": 362.7, "needs_extract": false, "source_frame_path": "src/frame_00h06m02s700ms_scene_001.jpg", "reason": "内容匹配，时间点准确"}}
+  ]
+}}
+```
+
+注意上面的例子覆盖了两种状态：
+- **保留**（needs_extract=false，source_frame_path 引用 SRT_MD 里出现过的图片路径）
+- 4 态里的另 3 种（重截 / 删除 / 幻觉路径）下面给一个完整范例：
+
+```json
+{{
+  "blog_markdown": "## ...",
+  "selected_timestamps": [
+    {{"srt_id": 1, "timestamp": 5.2, "needs_extract": false, "source_frame_path": "src/frame_..._interval_001.jpg", "reason": "保留：图片清晰，跟段 1 内容匹配"}},
+    {{"srt_id": 2, "timestamp": 6.5, "needs_extract": true, "source_frame_path": null, "reason": "重截：原图是过渡帧，更准的时间点是 6.5s"}},
+    {{"srt_id": 2, "timestamp": 7.0, "needs_extract": false, "source_frame_path": null, "reason": "删除：跟段 2 内容不相关，是过渡帧"}}
+  ]
+}}
+```
 """
 
 
