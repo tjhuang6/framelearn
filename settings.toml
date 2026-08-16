@@ -194,3 +194,12 @@ similarity_threshold = 0.95
 
 # 启发式截帧：最大候选帧数（去重前上限）
 max_frames = 200
+
+# ── 博客锚点流水线配置（blog-anchor-pipeline）
+[blog_gen]
+# 文本模型请求的时间戳与已有候选帧的匹配容差（秒）
+frame_match_tolerance = 2.0
+
+# 视觉模型 retake 补截的最大轮数
+max_retakes = 1
+

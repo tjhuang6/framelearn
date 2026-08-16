@@ -2,7 +2,7 @@
 
 [中文](README.md) | English
 
-FrameLearn converts local programming tutorial videos into Markdown learning material with timestamped keyframes. The current implementation covers audio extraction, ASR, subtitle cleaning, chunked (30 min) LLM calls, heuristic + vision two-stage keyframe selection, dual Markdown output, and general-purpose Q&A through the text API.
+FrameLearn converts local programming tutorial videos into Markdown learning material with timestamped keyframes. The current implementation covers audio extraction, ASR, subtitle cleaning, anchored blog generation: text LLM writes the blog and frame anchors, FFmpeg supplies candidate frames, and the vision model validates frames before assembly, and general-purpose Q&A through the text API.
 
 ## Current capabilities
 
@@ -80,6 +80,10 @@ max_frames = 200
 [doc_gen]
 srt_filename = "srt_picture.md"   # SRT structure + images
 blog_filename = "blog.md"         # blog-style narrative + same images
+
+[blog_gen]
+frame_match_tolerance = 2.0       # anchor-to-candidate timestamp tolerance (seconds)
+max_retakes = 1                   # vision model retake budget
 ```
 
 With those defaults, configure at least:
@@ -145,8 +149,9 @@ CLI / REPL
       → FFmpegHelper
       → KeyframeDeduplicator
       → ChunkedDocGenerator
-          → SRTChunker → TextCleaner → HeuristicFrameExtractor
-          → VisionStage1 → VisionStage2 → MDAssembler
+          → SRTChunker → insert frame markers
+          → BlogGenerator → anchor validation / FFmpeg recapture
+          → VisionFrameEvaluator → MDAssembler
           → one-shot generation for small inputs
           → SegmentSplitter + cache + retry + merge for large inputs
 ```

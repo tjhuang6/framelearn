@@ -12,7 +12,7 @@ FrameLearn 将本地编程教学视频转换为带关键帧的 Markdown 学习�
   - 阿里云百炼 DashScope：长音频分片、OSS 临时上传、异步转写、断点记录和 SRT 时间戳。
   - 硅基流动 SenseVoice：实现简单，但不返回时间戳。
 - 可通过 `--subtitle` 直接使用已有 `.txt`、`.srt` 或 `.vtt`，跳过 ASR。
-- **分块 LLM 文档生成**：将 SRT 按 30 分钟切段（`[chunking] segment_minutes`），每段一次性发给文本 LLM 去口水词，再用 Qwen3-VL 视觉模型两阶段决策（先看图 + 文本挑时间戳，再回头筛掉重复/无意义帧）。30 分钟视频总 LLM 调用 ≤ 3 次/段数。
+- **博客锚点流水线**：先按时长切段并插入启发式帧标记，文本 LLM 生成博客正文并输出 `[[FRAME:id@timestamp]]` 锚点；程序绑定候选帧或 FFmpeg 精准补截；Qwen3-VL 视觉模型只负责验图（retake/keep/caption/text_representation），最后程序拼装 `blog.md` 与 `srt_picture.md`。
 - 每次运行固定生成两个 Markdown：`srt_picture.md`（保留 SRT 段结构、时间戳 + 配图）和 `blog.md`（博客式叙述 + 同样的配图）。
 - 启发式截帧（ffmpeg 场景检测 + pHash 去重）结果会被 SHA256 摘要写入 manifest，配置或视频变化时自动重跑。
 - `ask` 通过文本 LLM API 回答通用问题。
@@ -81,6 +81,10 @@ max_frames = 200
 [doc_gen]
 srt_filename = "srt_picture.md"   # 保留 SRT 结构 + 配图
 blog_filename = "blog.md"         # 博客式叙述 + 同样的配图
+
+[blog_gen]
+frame_match_tolerance = 2.0       # 锚点时间戳与候选帧匹配容差（秒）
+max_retakes = 1                   # 视觉模型 retake 补截上限
 ```
 
 使用默认配置至少需要：
@@ -136,7 +140,7 @@ output/<视频文件名>/
 │   ├── subtitle.txt               # 清洗后的纯文本
 │   ├── subtitle.srt               # ASR/输入提供 SRT 时存在
 │   ├── frame_00h01m30s.jpg        # 启发式截帧（带时间戳）
-│   ├── extra_frame_xxx.jpg        # Stage1 按需补充的帧
+│   ├── extra_frame_xxx.jpg        # 锚点流水线按需精准补截的帧
 │   ├── subtitle_manifest.json     # 字幕缓存校验
 │   └── keyframe_manifest.json     # 启发式帧摘要（用于重跑跳过 ffmpeg）
 ├── temp/                          # DashScope 临时切片 + ffmpeg 中间帧
@@ -158,10 +162,10 @@ CLI / REPL
       → KeyframeDeduplicator
       → ChunkedDocGenerator
           → SRTChunker 按时长分块
-          → TextCleaner 并行清洗
-          → HeuristicFrameExtractor 抽帧
-          → VisionStage1 文本+图
-          → VisionStage2 逐帧 keep/discard
+          → 插入启发式帧标记
+          → BlogGenerator 文本生成 + 帧锚点
+          → 程序校验锚点 / FFmpeg 补截
+          → VisionFrameEvaluator 验图（retake/keep/caption）
           → MDAssembler 输出双 Markdown
 ```
 

@@ -153,4 +153,8 @@ def _default_config() -> dict[str, Any]:
             "similarity_threshold": 0.95,
             "max_frames": 200,
         },
+        "blog_gen": {
+            "frame_match_tolerance": 2.0,
+            "max_retakes": 1,
+        },
     }

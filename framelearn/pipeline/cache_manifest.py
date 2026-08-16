@@ -79,6 +79,8 @@ class ConfigSnapshot:
     heuristic_scene_threshold: float = 0.4
     heuristic_similarity_threshold: float = 0.95
     heuristic_max_frames: int = 200
+    blog_gen_frame_match_tolerance: float = 2.0
+    blog_gen_max_retakes: int = 1
 
     @classmethod
     def from_config(cls, config_get_fn, mode: str, asr_provider: str = "unknown", asr_model: str = "unknown") -> "ConfigSnapshot":
@@ -157,6 +159,8 @@ class ConfigSnapshot:
             heuristic_scene_threshold=float(config_get_fn("heuristic.scene_threshold", 0.4)),
             heuristic_similarity_threshold=float(config_get_fn("heuristic.similarity_threshold", 0.95)),
             heuristic_max_frames=int(config_get_fn("heuristic.max_frames", 200)),
+            blog_gen_frame_match_tolerance=float(config_get_fn("blog_gen.frame_match_tolerance", 2.0)),
+            blog_gen_max_retakes=int(config_get_fn("blog_gen.max_retakes", 1)),
         )
 
 

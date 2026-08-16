@@ -31,10 +31,10 @@ def _parse_frame_timestamp(frame_path: Path) -> float:
     """Extract the embedded timestamp from a frame's filename.
 
     Heuristic extractor writes filenames like
-    ``frame_00h01m30s250ms_scene_001.jpg``; Stage1's new frames use
-    ``extra_frame_000.jpg`` (no timestamp embedded). For the latter we
-    fall back to 0.0 — they're associated with SRT segments by the
-    assembler anyway.
+    ``frame_00h01m30s250ms_scene_001.jpg``; precise captures from the
+    anchor pipeline may use different names (no timestamp embedded). For
+    the latter we fall back to 0.0 — they're associated with SRT segments
+    by the assembler anyway.
     """
     name = frame_path.stem
     match = _TIMESTAMP_RE.search(name)
@@ -304,10 +304,10 @@ class VideoPipeline:
 
             # Step 4: Build pre-extracted frame list from cache (optional).
             #
-            # With the chunked pipeline, the heuristic extractor and
-            # Stage1's new-frame capture both run inside
-            # ChunkedDocGenerator. We just check the keyframe cache here
-            # so a re-run with unchanged inputs can skip ffmpeg.
+            # With the anchored blog pipeline, heuristic extraction and
+            # precise anchor captures both run inside ChunkedDocGenerator.
+            # We just check the keyframe cache here so a re-run with
+            # unchanged inputs can skip ffmpeg scene detection.
             print("🖼️  检查关键帧缓存...")
 
             cached_frames = sorted(src_dir.glob("*.jpg"))
@@ -350,13 +350,12 @@ class VideoPipeline:
                     )
                     pre_extracted_frames = None
 
-            # Step 4-6: Hand off to the chunked doc generator.
+            # Step 4-6: Hand off to the anchored blog generator.
             #
-            # The new flow combines heuristic keyframe extraction + text
-            # cleaning + two vision-model stages inside one orchestrator.
-            # We no longer call the per-segment agent_keyframe_selector or
-            # the legacy document_generator — see openspec change
-            # ``chunked-llm-doc-gen`` for the full rationale.
+            # Text LLM writes blog prose and frame anchors; FFmpeg provides
+            # candidate frames; the vision model validates frames; MDAssembler
+            # produces the final Markdown. See openspec change
+            # ``blog-anchor-pipeline`` for the full rationale.
             print("🚀 启动分块文档生成（启发式 + 视觉两阶段）...")
 
             # Track which LLM services we'll touch.
