@@ -2,14 +2,14 @@
 
 The heuristic extractor produces frames for the whole video. Each frame
 has a ``timestamp_sec``. Here we bucket those frames by which SRTChunk
-they fall into, so Stage1 can see only the frames that are relevant to
-its current chunk (keeps the prompt small and keeps context usage low).
+they fall into, so BlogGenerator can see only the frames that are
+relevant to its current chunk (keeps the prompt small and keeps context
+usage low).
 
 Boundary handling: a frame exactly at ``chunk.end_sec`` is assigned to
 the NEXT chunk. The chunker itself places boundaries on segment
 ``start_sec``, so exact-boundary collisions are rare — when they happen
-the frame is visible to both chunks' Stage1 calls anyway (one of them
-will likely keep it, the other discard).
+the frame is visible to both chunks anyway.
 """
 
 from __future__ import annotations

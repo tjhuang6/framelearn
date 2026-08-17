@@ -90,17 +90,6 @@ class PipelineResult:
     error: Optional[str] = None
     warnings: list[str] = field(default_factory=list)
 
-    @property
-    def markdown_path(self) -> Path:
-        """Backward-compat alias for the blog output.
-
-        Older callers (e.g. ``router._run_pipeline``) printed
-        ``result.markdown_path``; keep that working but prefer the new
-        ``srt_picture_path`` / ``blog_path`` attributes.
-        """
-        return self.blog_path
-
-
 class VideoPipeline:
     """Orchestrates video → audio → ASR → keyframes → document generation."""
 
@@ -126,6 +115,12 @@ class VideoPipeline:
         from framelearn.privacy_tracker import PrivacyTracker, set_tracker, reset_tracker
         from framelearn.config import get as config_get
 
+        # Reject invalid config before any expensive work starts. The CLI
+        # also preflights earlier; this covers direct ``VideoPipeline`` use.
+        from framelearn.preflight import validate_run_config
+
+        validate_run_config(has_subtitle=self.subtitle_path is not None)
+
         # Initialize privacy tracker
         privacy_hints_enabled = config_get("privacy.privacy_hints", False)
         tracker = PrivacyTracker(enabled=privacy_hints_enabled)
@@ -141,7 +136,15 @@ class VideoPipeline:
         try:
             result = self._run_internal(tracker)
             result.warnings = reporter.get_warnings()
-            status = "error" if result.error else "success"
+            if result.error:
+                status = "error"
+            elif reporter.has_degradation():
+                # The run completed, but one or more chunks/segments used a
+                # fallback path. Mark it clearly instead of reporting a
+                # clean "success" alongside raw-subtitle fallback chunks.
+                status = "degraded"
+            else:
+                status = "success"
             reporter.write_report(
                 self.output_dir / "run-report.json",
                 status=status,
@@ -219,13 +222,13 @@ class VideoPipeline:
                         )
                         if not use_cache:
                             print("⚠️  字幕缓存失效（输入或配置已变更）")
-                            get_reporter().record_fallback(
+                            get_reporter().record_repair(
                                 "video_pipeline.subtitle_cache",
                                 "字幕缓存失效（输入或配置已变更），将重新转录",
                             )
                     else:
                         print("⚠️  字幕 manifest 损坏")
-                        get_reporter().record_fallback(
+                        get_reporter().record_repair(
                             "video_pipeline.subtitle_cache",
                             "字幕 manifest 损坏，将重新转录",
                         )
@@ -344,7 +347,7 @@ class VideoPipeline:
                     pre_extracted_frames = candidate_list
                 else:
                     print("⚠️  关键帧缓存失效（输入或配置已变更）")
-                    get_reporter().record_fallback(
+                    get_reporter().record_repair(
                         "video_pipeline.keyframe_cache",
                         "关键帧缓存失效（输入或配置已变更），将重新提取",
                     )

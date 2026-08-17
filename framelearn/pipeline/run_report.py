@@ -53,7 +53,9 @@ class RunReporter:
       of the intended logic (LLM call failed → heuristic/default used)
     - skipped_frames: a keyframe that was dropped due to a processing
       error (phash failure, capture failure, ...)
-    - cache_hits: cache reuse events (subtitle/keyframe/segment cache)
+    - cache_hits: cache reuse events (subtitle/keyframe cache)
+    - repairs: model output that needed schema repair but produced valid
+      final output (informational; does not mark the run degraded)
     """
 
     def __init__(self, video_name: str = ""):
@@ -62,6 +64,7 @@ class RunReporter:
         self.fallbacks: list[RunEvent] = []
         self.skipped_frames: list[RunEvent] = []
         self.cache_hits: list[RunEvent] = []
+        self.repairs: list[RunEvent] = []
 
     # ── recorders ────────────────────────────────────────────────────
 
@@ -84,13 +87,18 @@ class RunReporter:
         event = RunEvent(stage=stage, message=f"[{stage}] {message}", detail=detail or {})
         self.cache_hits.append(event)
 
+    def record_repair(self, stage: str, message: str, detail: Optional[dict] = None) -> None:
+        """Record a successful schema repair (not a degradation)."""
+        event = RunEvent(stage=stage, message=f"[{stage}] {message}", detail=detail or {})
+        self.repairs.append(event)
+
     # ── readout ──────────────────────────────────────────────────────
 
     def get_warnings(self) -> list[str]:
         """Flat, chronological list of human-readable warnings.
 
         Includes failed segments, fallbacks, and skipped frames. Cache
-        hits are informational (not a degradation) and are excluded.
+        hits and successful schema repairs are informational and excluded.
         """
         events = self.failed_segments + self.fallbacks + self.skipped_frames
         events.sort(key=lambda e: e.timestamp)
@@ -110,11 +118,13 @@ class RunReporter:
                 "fallbacks": len(self.fallbacks),
                 "skipped_frames": len(self.skipped_frames),
                 "cache_hits": len(self.cache_hits),
+                "repairs": len(self.repairs),
             },
             "failed_segments": [asdict(e) for e in self.failed_segments],
             "fallbacks": [asdict(e) for e in self.fallbacks],
             "skipped_frames": [asdict(e) for e in self.skipped_frames],
             "cache_hits": [asdict(e) for e in self.cache_hits],
+            "repairs": [asdict(e) for e in self.repairs],
         }
 
     def write_report(self, path: Path, status: str = "success", error: Optional[str] = None) -> None:

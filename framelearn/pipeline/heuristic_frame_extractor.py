@@ -1,10 +1,10 @@
 """Heuristic frame extraction — ffmpeg scene detection + pHash dedup.
 
 This is the "no LLM" first pass. It pulls a coarse set of candidate frames
-across the whole video, which the vision model in Stage1 will then review,
-drop, augment, and refine. Output is uniform :class:`CandidateFrame`
-records so the downstream distributor / vision stages don't care whether a
-frame came from heuristics or from Stage1's later extraction.
+across the whole video, which BlogGenerator and VisionFrameEvaluator then
+use for anchors and visual validation. Output is uniform
+:class:`CandidateFrame` records so downstream stages don't care whether a
+frame came from heuristics or from a later precise capture.
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ class CandidateFrame:
         path: Absolute or relative path to the JPEG file.
         timestamp_sec: Video timestamp (seconds, float).
         source: Where this frame came from. ``"heuristic"`` for the
-            first-pass ffmpeg/dedup pass, ``"stage1"`` for frames
-            requested by the vision model after seeing the heuristic set.
+            first-pass ffmpeg/dedup pass; other values identify frames
+            produced by a later pipeline step.
     """
 
     path: str

@@ -459,7 +459,15 @@ def _bilibili_cookie_value() -> str:
         "bilibili", "BILIBILI_COOKIE", "BILIBILI_COOKIE_FILE"
     )
     if not raw:
-        return ""
+        # Legacy .env layout stores SESSDATA / bili_jct directly.
+        sessdata = os.getenv("SESSDATA", "").strip()
+        bili_jct = os.getenv("bili_jct", "").strip()
+        if not sessdata:
+            return ""
+        cookie = f"SESSDATA={sessdata}"
+        if bili_jct:
+            cookie += f"; bili_jct={bili_jct}"
+        return cookie
     candidate = Path(raw).expanduser()
     if candidate.is_file():
         cookies: list[str] = []

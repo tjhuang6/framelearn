@@ -1,8 +1,7 @@
 """Chunk SRT by video duration — each chunk covers N minutes of video.
 
 The chunker is idempotent: passing the same SRT + same segment_minutes
-always produces the same chunks. This lets downstream stages cache per
-chunk without storing the chunking key separately.
+always produces the same chunks.
 
 Chunk boundaries are placed on a subtitle segment's ``start_sec`` (never
 split a single segment across chunks). The last chunk may be shorter than

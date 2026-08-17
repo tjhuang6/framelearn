@@ -136,7 +136,7 @@ class FFmpegHelper:
     ) -> bool:
         """Capture a single frame at the given timestamp.
 
-        Used by AgentKeyframeSelector to capture frames on demand.
+        Used by the anchored blog pipeline for precise captures on demand.
 
         Args:
             video_path: Path to input video

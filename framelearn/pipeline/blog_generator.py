@@ -14,6 +14,9 @@ import math
 import re
 from dataclasses import dataclass
 
+from framelearn.config import get as config_get
+from framelearn.errors import ConfigurationError, GenerationError
+from framelearn.llm.catalog import get_model_capabilities
 from framelearn.pipeline.heuristic_frame_extractor import CandidateFrame
 from framelearn.pipeline.llm_json import parse_json_object
 from framelearn.pipeline.run_report import get_reporter
@@ -179,8 +182,45 @@ def build_annotated_srt(chunk: SRTChunk, frames: list[CandidateFrame]) -> str:
     return "\n".join(lines).strip()
 
 
+def _parse_frame_request_item(item: object) -> FrameRequest | None:
+    """Parse one ``frame_requests`` entry. Returns None when invalid."""
+    if not isinstance(item, dict):
+        return None
+    anchor_id = item.get("anchor_id")
+    if not isinstance(anchor_id, str) or not anchor_id:
+        return None
+
+    try:
+        srt_id = int(item["srt_id"])
+        timestamp = float(item["timestamp"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if srt_id < 1 or not math.isfinite(timestamp) or timestamp < 0:
+        return None
+
+    request_type = item.get("request_type")
+    if request_type not in ("reuse", "new_capture"):
+        return None
+
+    src = item.get("source_frame_path")
+    if request_type == "reuse":
+        if not isinstance(src, str) or not src:
+            return None
+    elif src is not None:
+        return None
+
+    return FrameRequest(
+        anchor_id=anchor_id,
+        srt_id=srt_id,
+        timestamp=timestamp,
+        request_type=request_type,
+        source_frame_path=src,
+        reason=str(item.get("reason", "")),
+    )
+
+
 def _parse_frame_requests(data: dict) -> list[FrameRequest] | None:
-    """Parse and validate ``frame_requests``.
+    """Strictly parse and validate ``frame_requests``.
 
     Returns None when the schema is invalid; the caller retries.
     """
@@ -191,45 +231,28 @@ def _parse_frame_requests(data: dict) -> list[FrameRequest] | None:
     requests: list[FrameRequest] = []
     seen_anchors: set[str] = set()
     for item in raw_requests:
-        if not isinstance(item, dict):
+        request = _parse_frame_request_item(item)
+        if request is None or request.anchor_id in seen_anchors:
             return None
-        anchor_id = item.get("anchor_id")
-        if not isinstance(anchor_id, str) or not anchor_id:
-            return None
-        if anchor_id in seen_anchors:
-            return None
-        seen_anchors.add(anchor_id)
+        seen_anchors.add(request.anchor_id)
+        requests.append(request)
+    return requests
 
-        try:
-            srt_id = int(item["srt_id"])
-            timestamp = float(item["timestamp"])
-        except (KeyError, TypeError, ValueError):
-            return None
-        if srt_id < 1 or not math.isfinite(timestamp) or timestamp < 0:
-            return None
 
-        request_type = item.get("request_type")
-        if request_type not in ("reuse", "new_capture"):
-            return None
+def _parse_frame_requests_lenient(data: dict) -> list[FrameRequest]:
+    """Parse ``frame_requests`` but skip malformed entries instead of failing."""
+    raw_requests = data.get("frame_requests")
+    if not isinstance(raw_requests, list):
+        return []
 
-        src = item.get("source_frame_path")
-        if request_type == "reuse":
-            if not isinstance(src, str) or not src:
-                return None
-        elif src is not None:
-            return None
-
-        reason = str(item.get("reason", ""))
-        requests.append(
-            FrameRequest(
-                anchor_id=anchor_id,
-                srt_id=srt_id,
-                timestamp=timestamp,
-                request_type=request_type,
-                source_frame_path=src,
-                reason=reason,
-            )
-        )
+    requests: list[FrameRequest] = []
+    seen_anchors: set[str] = set()
+    for item in raw_requests:
+        request = _parse_frame_request_item(item)
+        if request is None or request.anchor_id in seen_anchors:
+            continue
+        seen_anchors.add(request.anchor_id)
+        requests.append(request)
     return requests
 
 
@@ -276,8 +299,117 @@ def _parse_blog_output(
     return BlogGeneratorOutput(blog_markdown=blog, frame_requests=requests)
 
 
+def _nearest_srt_id(chunk: SRTChunk, timestamp: float) -> int:
+    """Return the 1-based SRT id whose midpoint is closest to ``timestamp``."""
+    if not chunk.segments:
+        return 1
+    nearest = min(
+        range(1, len(chunk.segments) + 1),
+        key=lambda i: abs(
+            (
+                float(getattr(chunk.segments[i - 1], "start", 0.0) or 0.0)
+                + float(
+                    getattr(
+                        chunk.segments[i - 1],
+                        "end",
+                        getattr(chunk.segments[i - 1], "start", 0.0),
+                    )
+                    or 0.0
+                )
+            )
+            / 2.0
+            - timestamp
+        ),
+    )
+    return nearest
+
+
+def _parse_blog_output_lenient(
+    raw: str,
+    chunk: SRTChunk,
+    frames: list[CandidateFrame],
+) -> BlogGeneratorOutput | None:
+    """Parse a model response and repair minor schema violations.
+
+    Strict parsing rejects the whole chunk when e.g. one anchor's
+    timestamp is rounded, a frame request is missing, or an extra request
+    has no markdown anchor. Those responses are still valuable; this
+    function recovers what can be recovered so we don't degrade a whole
+    10-minute chunk to raw subtitle text.
+    """
+    data = parse_json_object(raw)
+    if data is None:
+        return None
+
+    blog = data.get("blog_markdown")
+    if not isinstance(blog, str) or not blog.strip():
+        return None
+
+    # Keep the first occurrence of each anchor id. Duplicate markers all
+    # resolve to the same image anyway.
+    markers: list[tuple[str, float]] = []
+    seen_markers: set[str] = set()
+    for match in ANCHOR_RE.finditer(blog):
+        anchor_id = match.group("anchor_id")
+        if anchor_id in seen_markers:
+            continue
+        seen_markers.add(anchor_id)
+        markers.append((anchor_id, float(match.group("timestamp"))))
+
+    if not markers:
+        return BlogGeneratorOutput(blog_markdown=blog, frame_requests=[])
+
+    request_map = {
+        request.anchor_id: request
+        for request in _parse_frame_requests_lenient(data)
+    }
+    valid_paths = {frame.path for frame in frames}
+
+    repaired_requests: list[FrameRequest] = []
+    for anchor_id, timestamp in markers:
+        request = request_map.get(anchor_id)
+
+        request_type = "new_capture"
+        source_frame_path = None
+        reason = "程序根据 blog_markdown 中的锚点自动补全"
+        srt_id = _nearest_srt_id(chunk, timestamp)
+
+        if request is not None:
+            request_type = request.request_type
+            source_frame_path = request.source_frame_path
+            reason = request.reason or reason
+            if 1 <= request.srt_id <= len(chunk.segments):
+                srt_id = request.srt_id
+
+        if (
+            request_type == "reuse"
+            and (not source_frame_path or source_frame_path not in valid_paths)
+        ):
+            request_type = "new_capture"
+            source_frame_path = None
+            reason = f"模型引用了无效候选帧，改为按 {timestamp:.1f}s 补截"
+
+        repaired_requests.append(
+            FrameRequest(
+                anchor_id=anchor_id,
+                srt_id=srt_id,
+                timestamp=timestamp,
+                request_type=request_type,
+                source_frame_path=source_frame_path,
+                reason=reason,
+            )
+        )
+
+    return BlogGeneratorOutput(blog_markdown=blog, frame_requests=repaired_requests)
+
+
 def fallback_blog(chunk: SRTChunk) -> BlogGeneratorOutput:
-    """Fallback when the text model keeps failing."""
+    """Legacy raw-subtitle fallback.
+
+    The current pipeline never calls this: text generation failures now
+    abort the run instead of producing degraded output. Kept only for
+    backward-compatible imports.
+    """
     blog = "\n\n".join(
         str(getattr(seg, "text", "")).strip()
         for seg in chunk.segments
@@ -286,48 +418,152 @@ def fallback_blog(chunk: SRTChunk) -> BlogGeneratorOutput:
     return BlogGeneratorOutput(blog_markdown=blog, frame_requests=[], degraded=True)
 
 
+def _resolve_max_retries(
+    *,
+    max_retries: int | None,
+    max_calls: int | None,
+    setting_key: str,
+    default: int,
+    label: str,
+) -> int:
+    """Resolve retry budget from ``max_calls`` (total attempts) or retries.
+
+    ``max_calls`` is the user-facing setting: total model calls including
+    the first attempt. ``max_retries`` remains available for code/tests and
+    is always ``max_calls - 1``.
+    """
+    if max_calls is not None:
+        if max_calls < 1:
+            raise ConfigurationError(f"{label}的 {setting_key} 必须大于等于 1")
+        return max_calls - 1
+
+    if max_retries is not None:
+        if max_retries < 0:
+            raise ConfigurationError(f"{label}的 max_retries 不能小于 0")
+        return max_retries
+
+    calls = int(config_get(setting_key, default))
+    if calls < 1:
+        raise ConfigurationError(f"{label}的 {setting_key} 必须大于等于 1")
+    return calls - 1
+
+
+def _build_blog_repair_prompt(raw_response: str) -> str:
+    """Ask the model to repair a JSON response that failed to parse."""
+    return (
+        "你上一次的输出无法被程序解析为要求的 JSON。请只输出修正后的 JSON，"
+        "不要输出任何解释、markdown 代码围栏之外的内容。\n\n"
+        "上一次输出：\n"
+        f"<RAW>{raw_response}</RAW>\n\n"
+        "再次输出完整 JSON："
+    )
+
+
 class BlogGenerator:
     """Call the text model with an annotated SRT chunk."""
 
     def __init__(
         self,
         config: ProviderConfig | None = None,
-        max_retries: int = 2,
+        max_retries: int | None = None,
         timeout: int = 300,
+        max_tokens: int | None = None,
+        max_calls: int | None = None,
     ):
         self.config = config or load_text_config()
-        self.max_retries = max_retries
         self.timeout = timeout
+        self.max_retries = _resolve_max_retries(
+            max_retries=max_retries,
+            max_calls=max_calls,
+            setting_key="blog_gen.max_calls",
+            default=3,
+            label="文本模型",
+        )
+        configured_max_tokens = (
+            max_tokens
+            if max_tokens is not None
+            else int(config_get("blog_gen.max_tokens", 16384))
+        )
+        capabilities = get_model_capabilities(self.config.model)
+        if (
+            capabilities
+            and capabilities.max_tokens
+            and configured_max_tokens > capabilities.max_tokens
+        ):
+            raise ConfigurationError(
+                "blog_gen.max_tokens 配置错误："
+                f"{configured_max_tokens} 超过模型 {self.config.model} "
+                f"的最大输出 {capabilities.max_tokens}，请改小该值"
+            )
+        self.max_tokens = configured_max_tokens
 
     async def generate(
         self,
         chunk: SRTChunk,
         frames: list[CandidateFrame],
     ) -> BlogGeneratorOutput:
-        """Generate blog markdown and frame requests for one chunk."""
+        """Generate blog markdown and frame requests for one chunk.
+
+        There is deliberately no raw-subtitle fallback. Invalid output is
+        repaired / retried, and if the model still cannot produce valid
+        output the whole run fails with :class:`GenerationError`.
+        """
         chunk_text = build_annotated_srt(chunk, frames)
         prompt = BLOG_GENERATOR_PROMPT.format(chunk_text=chunk_text)
 
         last_error: Exception | None = None
+        last_response: str | None = None
         for attempt in range(self.max_retries + 1):
             try:
-                response = await call_llm_async(
-                    prompt,
-                    self.config,
-                    max_tokens=8192,
-                    timeout=self.timeout,
+                if last_response is None:
+                    response = await call_llm_async(
+                        prompt,
+                        self.config,
+                        max_tokens=self.max_tokens,
+                        timeout=self.timeout,
+                    )
+                else:
+                    response = await call_llm_async(
+                        _build_blog_repair_prompt(last_response),
+                        self.config,
+                        max_tokens=self.max_tokens,
+                        timeout=self.timeout,
+                    )
+
+                strict_parsed = _parse_blog_output(response, chunk, frames)
+                parsed = strict_parsed or _parse_blog_output_lenient(
+                    response, chunk, frames
                 )
-                parsed = _parse_blog_output(response, chunk, frames)
                 if parsed is None:
+                    last_response = response
                     raise ValueError("BlogGenerator response did not match schema")
+
+                if strict_parsed is None:
+                    # The strict schema failed but the lenient parser
+                    # recovered the chunk. Keep the polished blog text and
+                    # surface the repair in run-report.
+                    get_reporter().record_repair(
+                        "blog_generator.schema_repaired",
+                        (
+                            f"chunk {chunk.index} 模型 JSON 不完全符合约束，"
+                            "已自动修复锚点/请求不一致并保留正文"
+                        ),
+                        detail={"response_chars": len(response)},
+                    )
                 return parsed
+            except ConfigurationError:
+                raise
             except Exception as e:
                 last_error = e
                 if attempt < self.max_retries:
                     await asyncio.sleep(2 ** attempt)
 
         get_reporter().record_fallback(
-            "blog_generator.fallback",
-            f"chunk {chunk.index} BlogGenerator 失败（{last_error}），降级为原始字幕拼接",
+            "blog_generator.generation_failed",
+            f"chunk {chunk.index} 文本生成失败（{last_error}），已停止运行",
+            detail={"chunk_index": chunk.index},
         )
-        return fallback_blog(chunk)
+        raise GenerationError(
+            f"chunk {chunk.index} 文本模型重试 {self.max_retries + 1} 次后"
+            f"仍无法生成有效 JSON（{last_error}）"
+        )

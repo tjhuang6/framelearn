@@ -79,21 +79,6 @@ def test_timestamp_parsing():
     assert ms == 250
 
 
-def test_agent_frame_naming():
-    """Test agent keyframe selector naming."""
-    ts = 125.678
-    selected_count = 5
-    
-    h = int(ts // 3600)
-    m = int((ts % 3600) // 60)
-    s = int(ts % 60)
-    ms = round((ts % 1) * 1000)
-    
-    frame_name = f"frame_{h:02d}h{m:02d}m{s:02d}s{ms:03d}ms_agent_{selected_count+1:03d}.jpg"
-    
-    assert frame_name == "frame_00h02m05s678ms_agent_006.jpg"
-
-
 def test_filename_uniqueness_with_files(tmp_path: Path):
     """Test actual file creation without collisions."""
     frames_dir = tmp_path / "frames"

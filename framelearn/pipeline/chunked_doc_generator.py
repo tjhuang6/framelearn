@@ -21,12 +21,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from framelearn.config import get as config_get
+from framelearn.errors import GenerationError
 from framelearn.pipeline.blog_generator import (
     ANCHOR_RE,
     BlogGenerator,
     BlogGeneratorOutput,
     FrameRequest,
-    fallback_blog,
 )
 from framelearn.pipeline.frame_distributor import FrameDistributor
 from framelearn.pipeline.heuristic_frame_extractor import (
@@ -34,13 +34,17 @@ from framelearn.pipeline.heuristic_frame_extractor import (
     HeuristicFrameExtractor,
 )
 from framelearn.pipeline.md_assembler import MDAssembler
-from framelearn.pipeline.run_report import get_reporter
+from framelearn.pipeline.run_report import (
+    RunReporter,
+    get_reporter,
+    reset_reporter,
+    set_reporter,
+)
 from framelearn.pipeline.srt_chunker import SRTChunk, SRTChunker
 from framelearn.pipeline.vision_frame_evaluator import (
     AnchorFrame,
     FrameEvaluation,
     VisionFrameEvaluator,
-    _fallback_keep as vision_fallback_keep,
 )
 
 
@@ -51,6 +55,7 @@ class _ChunkPipelineResult:
     chunk_index: int
     blog_output: BlogGeneratorOutput
     evaluations: list[FrameEvaluation]
+    reporter: RunReporter | None = field(default=None)
 
 
 @dataclass
@@ -122,6 +127,200 @@ def _globalize_chunk_anchors(
     )
 
 
+def _resolve_chunk_anchors(
+    chunk: SRTChunk,
+    requests: list[FrameRequest],
+    frames: list[CandidateFrame],
+    video_path: str,
+    temp_frames: Path,
+    frame_match_tolerance: float,
+    local_offset: int = 1,
+) -> list[AnchorFrame]:
+    """Validate requests and produce concrete ``AnchorFrame`` items."""
+    resolved: list[AnchorFrame] = []
+    for request in requests:
+        local_srt_id = request.srt_id - local_offset + 1
+        subtitle = (
+            str(getattr(chunk.segments[local_srt_id - 1], "text", "") or "").strip()
+            if 1 <= local_srt_id <= len(chunk.segments)
+            else ""
+        )
+
+        if request.request_type == "reuse":
+            match = next(
+                (f for f in frames if f.path == request.source_frame_path),
+                None,
+            )
+            if match is None:
+                get_reporter().record_fallback(
+                    "chunked_doc.invalid_anchor",
+                    f"锚点 {request.anchor_id} 引用了不存在的候选帧，已停止运行",
+                    detail={"source_frame_path": request.source_frame_path},
+                )
+                raise GenerationError(
+                    f"锚点 {request.anchor_id} 引用了不存在的候选帧："
+                    f"{request.source_frame_path}"
+                )
+            resolved.append(
+                AnchorFrame(
+                    anchor_id=request.anchor_id,
+                    srt_id=request.srt_id,
+                    frame_path=match.path,
+                    timestamp=match.timestamp_sec,
+                    subtitle_text=subtitle,
+                )
+            )
+            continue
+
+        # new_capture
+        if frames:
+            nearest = min(
+                frames,
+                key=lambda f: abs(f.timestamp_sec - request.timestamp),
+            )
+            if (
+                abs(nearest.timestamp_sec - request.timestamp)
+                <= frame_match_tolerance
+            ):
+                resolved.append(
+                    AnchorFrame(
+                        anchor_id=request.anchor_id,
+                        srt_id=request.srt_id,
+                        frame_path=nearest.path,
+                        timestamp=nearest.timestamp_sec,
+                        subtitle_text=subtitle,
+                    )
+                )
+                continue
+
+        target = (
+            temp_frames
+            / "precise"
+            / f"chunk_{chunk.index}"
+            / f"{request.anchor_id}_{request.timestamp:.3f}.jpg"
+        )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        from framelearn.pipeline.ffmpeg_helper import FFmpegHelper
+
+        ok = FFmpegHelper.capture_single_frame(
+            video_path, request.timestamp, str(target)
+        )
+        if not ok:
+            get_reporter().record_skipped_frame(
+                "chunked_doc.precise_capture",
+                f"锚点 {request.anchor_id} 精准补截失败，已停止运行",
+                detail={"timestamp": request.timestamp},
+            )
+            raise GenerationError(
+                f"锚点 {request.anchor_id} 在 {request.timestamp:.3f}s "
+                "精准补截失败"
+            )
+        resolved.append(
+            AnchorFrame(
+                anchor_id=request.anchor_id,
+                srt_id=request.srt_id,
+                frame_path=str(target),
+                timestamp=request.timestamp,
+                subtitle_text=subtitle,
+            )
+        )
+    return resolved
+
+
+async def _process_chunk_async(
+    chunk: SRTChunk,
+    chunk_frames: list[CandidateFrame],
+    video_path: str,
+    temp_frames: Path,
+    blog_generator: BlogGenerator,
+    evaluator: VisionFrameEvaluator,
+    frame_match_tolerance: float,
+) -> _ChunkPipelineResult:
+    """Run text generation -> anchor resolution -> vision review for one chunk.
+
+    No degraded fallback is produced here. Any failure propagates and
+    aborts the whole run.
+    """
+    chunk_index = chunk.index
+
+    # 4. Text model: faithful blog prose + frame anchors.
+    output = await blog_generator.generate(chunk, chunk_frames)
+    output = _globalize_chunk_anchors(chunk_index, output)
+
+    # 5. Validate anchors / bind frames. FFmpeg is synchronous, so run it
+    # in a worker thread.
+    eval_items = await asyncio.to_thread(
+        _resolve_chunk_anchors,
+        chunk,
+        output.frame_requests,
+        chunk_frames,
+        video_path,
+        temp_frames,
+        frame_match_tolerance,
+        local_offset=1,
+    )
+
+    # 6. Vision model validates frames, including retakes.
+    if not eval_items:
+        evaluations: list[FrameEvaluation] = []
+    else:
+        evaluations = await evaluator.evaluate(eval_items, video_path, temp_frames)
+
+    return _ChunkPipelineResult(
+        chunk_index=chunk_index,
+        blog_output=output,
+        evaluations=evaluations,
+    )
+
+
+def _process_chunk_worker(
+    job: tuple[
+        SRTChunk,
+        list[CandidateFrame],
+        str,
+        Path,
+        float,
+    ],
+) -> _ChunkPipelineResult:
+    """Process one chunk inside a ProcessPoolExecutor worker.
+
+    Each worker gets its own ``RunReporter``; the parent replays those
+    events into the global reporter after the pool finishes.
+    """
+    chunk, chunk_frames, video_path, temp_frames, frame_match_tolerance = job
+    reporter = RunReporter(video_name="")
+    set_reporter(reporter)
+    try:
+        blog_generator = BlogGenerator()
+        evaluator = VisionFrameEvaluator()
+        result = asyncio.run(
+            _process_chunk_async(
+                chunk,
+                chunk_frames,
+                video_path,
+                temp_frames,
+                blog_generator,
+                evaluator,
+                frame_match_tolerance,
+            )
+        )
+        result.reporter = reporter
+        return result
+    finally:
+        reset_reporter()
+
+
+def _merge_chunk_reporter(result: _ChunkPipelineResult) -> None:
+    """Replay events recorded in a worker process into the global reporter."""
+    if result.reporter is None:
+        return
+    target = get_reporter()
+    target.failed_segments.extend(result.reporter.failed_segments)
+    target.fallbacks.extend(result.reporter.fallbacks)
+    target.skipped_frames.extend(result.reporter.skipped_frames)
+    target.cache_hits.extend(result.reporter.cache_hits)
+
+
 class ChunkedDocGenerator:
     """Run the anchored blog pipeline."""
 
@@ -130,6 +329,7 @@ class ChunkedDocGenerator:
         segment_minutes: float | None = None,
         max_images_per_chunk: int | None = None,
         concurrency: int | None = None,
+        parallel_mode: str | None = None,
     ):
         self.segment_minutes = (
             float(segment_minutes)
@@ -146,6 +346,20 @@ class ChunkedDocGenerator:
             if concurrency is not None
             else int(config_get("chunking.concurrency", 5))
         )
+        mode = str(
+            parallel_mode
+            if parallel_mode is not None
+            else config_get("chunking.parallel_mode", "async")
+        ).strip().lower()
+        if mode in ("async", "asyncio"):
+            self.parallel_mode = "async"
+        elif mode in ("process", "processes", "multiprocessing"):
+            self.parallel_mode = "process"
+        else:
+            raise ValueError(
+                "chunking.parallel_mode 必须是 'async' 或 'process'，"
+                f"当前值：{mode!r}"
+            )
         self.frame_match_tolerance = float(
             config_get("blog_gen.frame_match_tolerance", 2.0)
         )
@@ -195,9 +409,9 @@ class ChunkedDocGenerator:
                         heuristic.extract, video_path, temp_frames
                     )
                 except Exception as e:
-                    get_reporter().record_fallback(
-                        "chunked_doc.heuristic_failed",
-                        f"启发式截帧失败（{e}），BlogGenerator 只能请求新截帧",
+                    get_reporter().record_repair(
+                        "chunked_doc.heuristic_unavailable",
+                        f"启发式截帧不可用（{e}），BlogGenerator 将使用精准补截",
                     )
                     frames = []
 
@@ -205,96 +419,47 @@ class ChunkedDocGenerator:
             distributor = FrameDistributor(max_per_chunk=self.max_images_per_chunk)
             frames_by_chunk = distributor.distribute(chunks, frames)
 
-            # 4-6. Process every chunk end-to-end in parallel. The
-            # semaphore bounds the number of chunks in flight, so a 3-4
-            # hour video becomes e.g. 24×10min chunks with at most
-            # ``chunking.concurrency`` text/vision/ffmpeg workers active.
-            print(
-                f"并行处理 {chunks_total} 个 chunk（并发 {self.concurrency}）..."
-            )
-            blog_generator = BlogGenerator()
-            evaluator = VisionFrameEvaluator()
-            sem = asyncio.Semaphore(self.concurrency)
+            # 4-6. Process every chunk end-to-end in parallel. The async
+            # backend bounds the number of chunks in flight with a
+            # semaphore; the process backend uses ProcessPoolExecutor so
+            # CPU-heavy chunk work can use multiple cores.
+            if self.parallel_mode == "process":
+                print(
+                    f"多进程并行处理 {chunks_total} 个 chunk"
+                    f"（进程数 {self.concurrency}）..."
+                )
+                chunk_results = await asyncio.to_thread(
+                    self._run_chunks_in_process_pool,
+                    chunks,
+                    frames_by_chunk,
+                    video_path,
+                    temp_frames,
+                )
+            else:
+                print(
+                    f"并行处理 {chunks_total} 个 chunk"
+                    f"（并发 {self.concurrency}）..."
+                )
+                blog_generator = BlogGenerator()
+                evaluator = VisionFrameEvaluator()
+                sem = asyncio.Semaphore(self.concurrency)
 
-            async def _process_chunk(chunk: SRTChunk) -> _ChunkPipelineResult:
-                chunk_index = chunk.index
-                chunk_frames = frames_by_chunk.get(chunk_index, [])
-                async with sem:
-                    # 4. Text model: faithful blog prose + frame anchors.
-                    try:
-                        output = await blog_generator.generate(chunk, chunk_frames)
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as e:
-                        get_reporter().record_fallback(
-                            "chunked_doc.blog_generator_exception",
-                            (
-                                f"chunk {chunk_index} 文本生成异常（{e}），"
-                                "降级为原始字幕拼接"
-                            ),
-                            detail={"chunk_index": chunk_index},
-                        )
-                        output = fallback_blog(chunk)
-
-                    output = _globalize_chunk_anchors(chunk_index, output)
-
-                    # 5. Validate anchors / bind frames. FFmpeg is
-                    # synchronous, so run it in a worker thread.
-                    try:
-                        eval_items = await asyncio.to_thread(
-                            self._resolve_chunk_anchors,
+                async def _process_chunk(chunk: SRTChunk) -> _ChunkPipelineResult:
+                    chunk_frames = frames_by_chunk.get(chunk.index, [])
+                    async with sem:
+                        return await _process_chunk_async(
                             chunk,
-                            output.frame_requests,
                             chunk_frames,
                             video_path,
                             temp_frames,
-                            local_offset=1,
+                            blog_generator,
+                            evaluator,
+                            self.frame_match_tolerance,
                         )
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as e:
-                        get_reporter().record_fallback(
-                            "chunked_doc.anchor_resolution_failed",
-                            (
-                                f"chunk {chunk_index} 锚点绑定失败（{e}），"
-                                "已丢弃该 chunk 配图"
-                            ),
-                            detail={"chunk_index": chunk_index},
-                        )
-                        eval_items = []
 
-                    # 6. Vision model validates frames, including retakes.
-                    if not eval_items:
-                        evaluations: list[FrameEvaluation] = []
-                    else:
-                        try:
-                            evaluations = await evaluator.evaluate(
-                                eval_items, video_path, temp_frames
-                            )
-                        except asyncio.CancelledError:
-                            raise
-                        except Exception as e:
-                            get_reporter().record_fallback(
-                                "chunked_doc.vision_evaluator_exception",
-                                (
-                                    f"chunk {chunk_index} 视觉验图异常（{e}），"
-                                    f"保守保留 {len(eval_items)} 张候选帧"
-                                ),
-                                detail={"chunk_index": chunk_index},
-                            )
-                            evaluations = [
-                                vision_fallback_keep(item) for item in eval_items
-                            ]
-
-                    return _ChunkPipelineResult(
-                        chunk_index=chunk_index,
-                        blog_output=output,
-                        evaluations=evaluations,
-                    )
-
-            chunk_results = await asyncio.gather(
-                *(_process_chunk(c) for c in chunks)
-            )
+                chunk_results = await asyncio.gather(
+                    *(_process_chunk(c) for c in chunks)
+                )
 
             # Convert local srt_id to global srt_id for assembly.
             blog_markdowns: list[str] = []
@@ -369,93 +534,60 @@ class ChunkedDocGenerator:
             if not keep_temp_frames:
                 shutil.rmtree(temp_frames, ignore_errors=True)
 
-    def _resolve_chunk_anchors(
+    def _run_chunks_in_process_pool(
         self,
-        chunk: SRTChunk,
-        requests: list[FrameRequest],
-        frames: list[CandidateFrame],
+        chunks: list[SRTChunk],
+        frames_by_chunk: dict[int, list[CandidateFrame]],
         video_path: str,
         temp_frames: Path,
-        local_offset: int = 1,
-    ) -> list[AnchorFrame]:
-        """Validate requests and produce concrete ``AnchorFrame`` items."""
-        resolved: list[AnchorFrame] = []
-        for request in requests:
-            local_srt_id = request.srt_id - local_offset + 1
-            subtitle = (
-                str(getattr(chunk.segments[local_srt_id - 1], "text", "") or "").strip()
-                if 1 <= local_srt_id <= len(chunk.segments)
-                else ""
+    ) -> list[_ChunkPipelineResult]:
+        """Run every chunk in its own process, bounded by ``concurrency``.
+
+        Uses the ``spawn`` context for consistent behaviour across macOS /
+        Linux and to avoid forking a process that already has threads (the
+        heuristic extractor may have just used ``asyncio.to_thread``).
+        """
+        import multiprocessing
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+
+        jobs = [
+            (
+                chunk,
+                frames_by_chunk.get(chunk.index, []),
+                str(Path(video_path).resolve()),
+                Path(temp_frames).resolve(),
+                self.frame_match_tolerance,
             )
+            for chunk in chunks
+        ]
+        workers = max(1, min(self.concurrency, len(jobs)))
+        pool = ProcessPoolExecutor(
+            max_workers=workers,
+            mp_context=multiprocessing.get_context("spawn"),
+        )
+        future_to_index = {
+            pool.submit(_process_chunk_worker, job): index
+            for index, job in enumerate(jobs)
+        }
+        results: list[_ChunkPipelineResult | None] = [None] * len(jobs)
+        try:
+            for future in as_completed(future_to_index):
+                index = future_to_index[future]
+                results[index] = future.result()
+        except BaseException:
+            # A fatal config/auth error must stop the whole run. Cancel
+            # queued jobs immediately instead of letting every chunk hit
+            # the same broken endpoint.
+            for future in future_to_index:
+                future.cancel()
+            raise
+        finally:
+            pool.shutdown(wait=True, cancel_futures=True)
 
-            if request.request_type == "reuse":
-                match = next(
-                    (f for f in frames if f.path == request.source_frame_path),
-                    None,
-                )
-                if match is None:
-                    get_reporter().record_fallback(
-                        "chunked_doc.invalid_anchor",
-                        f"锚点 {request.anchor_id} 引用了不存在的候选帧，已删除",
-                        detail={"source_frame_path": request.source_frame_path},
-                    )
-                    continue
-                resolved.append(
-                    AnchorFrame(
-                        anchor_id=request.anchor_id,
-                        srt_id=request.srt_id,
-                        frame_path=match.path,
-                        timestamp=match.timestamp_sec,
-                        subtitle_text=subtitle,
-                    )
-                )
-                continue
-
-            # new_capture
-            if frames:
-                nearest = min(
-                    frames,
-                    key=lambda f: abs(f.timestamp_sec - request.timestamp),
-                )
-                if abs(nearest.timestamp_sec - request.timestamp) <= self.frame_match_tolerance:
-                    resolved.append(
-                        AnchorFrame(
-                            anchor_id=request.anchor_id,
-                            srt_id=request.srt_id,
-                            frame_path=nearest.path,
-                            timestamp=nearest.timestamp_sec,
-                            subtitle_text=subtitle,
-                        )
-                    )
-                    continue
-
-            target = (
-                temp_frames
-                / "precise"
-                / f"chunk_{chunk.index}"
-                / f"{request.anchor_id}_{request.timestamp:.3f}.jpg"
-            )
-            target.parent.mkdir(parents=True, exist_ok=True)
-            from framelearn.pipeline.ffmpeg_helper import FFmpegHelper
-
-            ok = FFmpegHelper.capture_single_frame(
-                video_path, request.timestamp, str(target)
-            )
-            if not ok:
-                get_reporter().record_skipped_frame(
-                    "chunked_doc.precise_capture",
-                    f"锚点 {request.anchor_id} 精准补截失败，已删除",
-                    detail={"timestamp": request.timestamp},
-                )
-                continue
-            resolved.append(
-                AnchorFrame(
-                    anchor_id=request.anchor_id,
-                    srt_id=request.srt_id,
-                    frame_path=str(target),
-                    timestamp=request.timestamp,
-                    subtitle_text=subtitle,
-                )
-            )
-        return resolved
-
+        merged: list[_ChunkPipelineResult] = []
+        for result in results:
+            if result is None:
+                raise RuntimeError("多进程 chunk 结果不完整")
+            merged.append(result)
+            _merge_chunk_reporter(result)
+        return merged

@@ -7,9 +7,6 @@ from framelearn.pipeline.frame_distributor import FrameDistributor, _evenly_subs
 from framelearn.pipeline.heuristic_frame_extractor import CandidateFrame
 from framelearn.pipeline.srt_chunker import SRTChunker
 from framelearn.pipeline.srt_parser import parse_srt_segments, parse_subtitle_file
-from framelearn.pipeline.text_cleaner import _parse_llm_response, _strip_fillers_locally
-from framelearn.pipeline.vision_stage1 import _parse_stage1
-from framelearn.pipeline.vision_stage2 import _parse_stage2
 
 
 SRT = """1
@@ -66,39 +63,3 @@ def test_evenly_subsample_k_one_returns_first_item():
         for i in range(3)
     ]
     assert _evenly_subsample(items, 1) == [items[0]]
-
-
-def test_text_cleaner_validates_id_order():
-    raw = '{"segments": [{"id": 2, "text": "b"}, {"id": 1, "text": "a"}]}'
-    assert _parse_llm_response(raw, expected_count=2) is None
-
-    raw = '{"segments": [{"id": 1, "text": "a"}, {"id": 2, "text": "b"}]}'
-    assert _parse_llm_response(raw, expected_count=2) == [
-        {"id": 1, "text": "a"},
-        {"id": 2, "text": "b"},
-    ]
-
-
-def test_filler_stripping_handles_empty_list():
-    assert _strip_fillers_locally(" 那么 大家好 ", []) == "那么 大家好"
-
-
-def test_stage1_string_false_is_treated_as_delete():
-    """``bool("false")`` must never turn a delete into an extraction."""
-    raw = (
-        '{"blog_markdown": "ok", "selected_timestamps": ['
-        '{"srt_id": 1, "timestamp": 1.0, "needs_extract": "false", '
-        '"source_frame_path": null, "reason": "x"}]}'
-    )
-    frames = [CandidateFrame(path="a.jpg", timestamp_sec=1.0, source="heuristic")]
-    out = _parse_stage1(raw, frames)
-    assert out is not None
-    assert out.selected_timestamps == []
-
-
-def test_stage2_string_false_is_treated_as_discard():
-    raw = '{"decisions": [{"frame": "a.jpg", "keep": "false", "reason": "x"}]}'
-    frames = [CandidateFrame(path="a.jpg", timestamp_sec=1.0, source="heuristic")]
-    decisions = _parse_stage2(raw, frames, [1])
-    assert decisions is not None
-    assert decisions[0].keep is False

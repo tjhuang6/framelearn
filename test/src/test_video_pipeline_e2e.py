@@ -223,7 +223,7 @@ class TestEndToEnd:
         result = pipeline.run()
 
         assert result.error is None, f"unexpected error: {result.error}"
-        assert result.markdown_path.exists()
+        assert result.blog_path.exists()
         assert (output_dir / "srt_picture.md").exists()
         assert (output_dir / "blog.md").exists()
         assert (output_dir / "src" / "subtitle.txt").exists()
@@ -329,4 +329,6 @@ class TestEndToEnd:
         assert (output_dir / "blog.md").exists()
         assert not (output_dir / "src" / "subtitle.srt").exists()
         report = json.loads((output_dir / "run-report.json").read_text(encoding="utf-8"))
-        assert report["status"] == "success"
+        # Synthetic timestamp segments are an intentional fallback, so the
+        # run completes with a degraded status rather than a clean success.
+        assert report["status"] == "degraded"

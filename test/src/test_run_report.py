@@ -6,11 +6,6 @@ Covers:
 - run-report.json is written with the right shape
 - Each previously-silent fallback path now reports an event:
     * keyframe_dedup: pHash failure -> skipped frame
-    * agent_keyframe_selector: capture failure -> skipped frame
-    * agent_keyframe_selector: LLM decision failure -> fallback
-    * agent_keyframe_selector: vision eval failure -> fallback (text-only)
-    * agent_keyframe_selector: text eval failure -> fallback (default keep)
-    * doc_generator: quality review exhausted -> fallback
     * dashscope backend: chunk submit/poll failure -> failed_segment
     * dashscope backend: partial merge -> fallback
 """
@@ -50,10 +45,10 @@ class TestRunReporter:
         assert self.reporter.has_degradation() is True
 
     def test_record_fallback(self):
-        self.reporter.record_fallback("agent_keyframe_selector.decide", "LLM 决策失败，启发式规则触发")
+        self.reporter.record_fallback("chunked_doc.blog_generator_exception", "文本生成失败")
         warnings = self.reporter.get_warnings()
         assert len(warnings) == 1
-        assert "LLM 决策失败" in warnings[0]
+        assert "文本生成失败" in warnings[0]
 
     def test_record_skipped_frame(self):
         self.reporter.record_skipped_frame("keyframe_dedup", "帧 x.jpg pHash 失败")
@@ -64,6 +59,11 @@ class TestRunReporter:
     def test_cache_hits_excluded_from_warnings(self):
         """Cache hits are informational, not a degradation — must not pollute warnings."""
         self.reporter.record_cache_hit("video_pipeline.subtitle_cache", "命中字幕缓存")
+        assert self.reporter.get_warnings() == []
+        assert self.reporter.has_degradation() is False
+
+    def test_repairs_excluded_from_degradation(self):
+        self.reporter.record_repair("vision_frame_evaluator.partial_schema", "恢复 8/8")
         assert self.reporter.get_warnings() == []
         assert self.reporter.has_degradation() is False
 
@@ -80,9 +80,10 @@ class TestRunReporter:
 
     def test_to_dict_shape(self):
         self.reporter.record_failed_segment("dashscope_asr.poll", 1, "boom")
-        self.reporter.record_fallback("doc_generator.quality_review", "降级保存原始字幕")
+        self.reporter.record_fallback("chunked_doc.vision_evaluator_exception", "视觉验图失败")
         self.reporter.record_skipped_frame("keyframe_dedup", "跳过一帧")
         self.reporter.record_cache_hit("video_pipeline.keyframe_cache", "命中关键帧缓存")
+        self.reporter.record_repair("blog_generator.schema_repaired", "修复 JSON 锚点")
 
         data = self.reporter.to_dict(status="success")
         assert data["video"] == "lecture.mp4"
@@ -92,11 +93,13 @@ class TestRunReporter:
             "fallbacks": 1,
             "skipped_frames": 1,
             "cache_hits": 1,
+            "repairs": 1,
         }
         assert len(data["failed_segments"]) == 1
         assert len(data["fallbacks"]) == 1
         assert len(data["skipped_frames"]) == 1
         assert len(data["cache_hits"]) == 1
+        assert len(data["repairs"]) == 1
 
     def test_write_report_creates_valid_json(self, tmp_path):
         self.reporter.record_fallback("agent", "something degraded")
@@ -187,124 +190,6 @@ class TestKeyframeDedupReporting:
         assert len(warnings) == 1
         assert "keyframe_dedup" in warnings[0]
         assert "pHash" in warnings[0]
-
-
-# ------------------------------------------------------------------
-# agent_keyframe_selector: every silent fallback now reports an event
-# ------------------------------------------------------------------
-
-def _make_selector():
-    from framelearn.pipeline.agent_keyframe_selector import AgentKeyframeSelector
-    sel = AgentKeyframeSelector.__new__(AgentKeyframeSelector)
-    sel.vision_mode = "appserver"
-    sel.vision_provider = "deepseek"
-    sel.vision_model = "deepseek-reasoner"
-    return sel
-
-
-class TestAgentKeyframeSelectorReporting:
-    def setup_method(self):
-        self.sel = _make_selector()
-        self.reporter = RunReporter(video_name="v.mp4")
-        set_reporter(self.reporter)
-
-    def teardown_method(self):
-        reset_reporter()
-
-    def test_decide_llm_failure_reports_fallback(self):
-        from framelearn.pipeline.asr_adapter import TranscriptSegment
-
-        seg = TranscriptSegment(text="看图说话", start=5.0, end=10.0)
-        self.sel._call_text_llm = Mock(side_effect=Exception("timeout"))
-
-        decision = self.sel._decide(seg)
-
-        assert decision.need_frame is True  # still falls back correctly
-        warnings = self.reporter.get_warnings()
-        assert len(warnings) == 1
-        assert "agent_keyframe_selector.decide" in warnings[0]
-        assert "timeout" in warnings[0]
-
-    def test_evaluate_vision_failure_reports_fallback(self, tmp_path):
-        frame = tmp_path / "frame.jpg"
-        frame.write_bytes(b"\xff\xd8\xff\xd9")
-
-        with patch(
-            "framelearn.pipeline.agent_keyframe_selector.VisionAgentEvaluator",
-            side_effect=Exception("vision down"),
-        ):
-            self.sel._call_text_llm = Mock(
-                return_value='{"keep": false, "reason": "no visual content"}'
-            )
-
-            ev = self.sel._evaluate(frame, "讲师正在讲", "v.mp4", tmp_path, 0.0)
-
-        assert ev.keep is False
-        warnings = self.reporter.get_warnings()
-        assert any("agent_keyframe_selector.evaluate" in w and "vision down" in w for w in warnings)
-
-    def test_evaluate_both_fail_reports_default_keep_fallback(self, tmp_path):
-        frame = tmp_path / "frame.jpg"
-        frame.write_bytes(b"\xff\xd8\xff\xd9")
-
-        with patch(
-            "framelearn.pipeline.agent_keyframe_selector.VisionAgentEvaluator",
-            side_effect=Exception("vision down"),
-        ):
-            self.sel._call_text_llm = Mock(side_effect=Exception("text down"))
-
-            ev = self.sel._evaluate(frame, "看图", "v.mp4", tmp_path, 0.0)
-
-        assert ev.keep is True
-        warnings = self.reporter.get_warnings()
-        # Both the vision->text fallback AND the text-only failure are reported
-        assert any("evaluate_text_only" in w for w in warnings)
-        assert any("默认保留" in w for w in warnings)
-
-    def test_capture_failure_reports_skipped_frame(self, tmp_path):
-        from framelearn.pipeline.asr_adapter import TranscriptSegment
-
-        seg = TranscriptSegment(text="如图所示", start=30.0, end=35.0)
-        self.sel._call_text_llm = Mock(
-            return_value='{"need_frame": true, "reason": "mentions figure"}'
-        )
-
-        with patch("framelearn.pipeline.agent_keyframe_selector.FFmpegHelper") as mock_ff:
-            mock_ff.capture_single_frame.return_value = False
-            result = self.sel.select("v.mp4", [seg], tmp_path)
-
-        assert result == []
-        warnings = self.reporter.get_warnings()
-        assert any("截帧失败" in w for w in warnings)
-
-
-# ------------------------------------------------------------------
-# doc_generator: quality review exhaustion now reports a fallback
-# ------------------------------------------------------------------
-
-class TestDocGeneratorReporting:
-    def teardown_method(self):
-        reset_reporter()
-
-    def test_quality_review_fallback_reports_event(self, tmp_path):
-        from framelearn.pipeline.doc_generator import DocumentGenerator
-
-        reporter = RunReporter(video_name="v.mp4")
-        set_reporter(reporter)
-
-        frame = tmp_path / "frame.jpg"
-        frame.touch()
-
-        gen = DocumentGenerator()
-        gen._generate_single = lambda *a, **kw: "太短"  # always fails review
-
-        original_subtitle = "原始字幕内容，用于降级保存"
-        result = gen._generate_with_review([(frame, 0.0)], original_subtitle, "notes")
-
-        assert result == original_subtitle
-        warnings = reporter.get_warnings()
-        assert any("doc_generator.quality_review" in w for w in warnings)
-        assert any("降级保存原始字幕" in w for w in warnings)
 
 
 # ------------------------------------------------------------------

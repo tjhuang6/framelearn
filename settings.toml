@@ -42,10 +42,7 @@ vision_mode = "api"
 # 注意：已知 text-only 模型（如 deepseek-chat）会被工厂拒绝。
 # 所有内置 provider 都走非 Responses 协议。
 vision_provider = "siliconflow"
-vision_model = "Qwen/Qwen3-VL-8B-Instruct"
-
-# Vision Agent 工具调用循环最大重试次数（capture_frame 的上限）
-vision_agent_max_retries = 5
+vision_model = "Qwen/Qwen3-VL-32B-Instruct"
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -85,7 +82,7 @@ model = "qwen-audio-3.0-asr-flash-filetrans"
 language_hints = ["zh", "en"]
 diarization_enabled = false
 disfluency_removal = false
-chunk_duration = 1800          # 分段时长（秒，默认 30 分钟）
+chunk_duration = 300          # 分段时长（秒，默认 30 分钟）
 max_workers = 2                # 并行上传和提交任务数（降低以避免超时）
 overlap = 2                    # 第一版不做重叠
 poll_interval = 5              # 轮询间隔（秒）
@@ -117,36 +114,19 @@ timestamp_tolerance = 0.5
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 七、视频处理配置 [video]
+# 七、视频输出配置 [video]
 # ═══════════════════════════════════════════════════════════════════
 
 [video]
 # 输出目录（处理完的视频教材保存位置）
 output_dir = "./output"
 
-# 场景检测阈值（0.0-1.0，越小越敏感，抽帧越多）
-scene_threshold = 0.4
-
-# 关键帧去重阈值（0.0-1.0，pHash 相似度 > 此值视为重复帧）
-# 0.95 = 像素差异很小的图才去重；0.7 = 同一张幻灯片不同字号的也合并
-# 注意：新流水线实际使用 [heuristic]，此处保留为兼容旧配置。
-similarity_threshold = 0.95
-
-# 保底抽帧间隔（秒，即使无场景切换也定时抽一帧）
-fallback_interval = 30
-
-# 最大关键帧数量（旧流水线配置，新流水线使用 [heuristic].max_frames）
-max_keyframes = 100
-
-# 图片质量（1-100，JPEG 压缩质量）
-image_quality = 85
-
 # 是否保留临时文件（调试时可开启）
 keep_temp_files = false
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 7.5、在线视频下载配置 [download]
+# 八、在线视频下载配置 [download]
 # ═══════════════════════════════════════════════════════════════════
 
 [download]
@@ -169,25 +149,8 @@ proxy = ""
 #             → yt-dlp 字幕 → ASR 兜底
 # Supadata key 配置在 .env 的 SUPADATA_API_KEY。
 
-
-
 # ═══════════════════════════════════════════════════════════════════
-# 八、Agent 决策配置[agent]
-# ═══════════════════════════════════════════════════════════════════
-
-[agent]
-# true = LLM 逐帧决策截哪里
-keyframe_selection = true
-
-# true = 生成后 LLM 评审质量，不合格自动重试（最多 3 次）
-quality_review = false
-
-# 质量评审升级模型（quality_review = true 时，第 3 次重试用此模型）
-upgrade_model = ""   # 留空则不升级，例如 "qwen3-vl-32b-instruct"
-
-
-# ═══════════════════════════════════════════════════════════════════
-# 九、分块 LLM 文档生成配置（chunked-llm-doc-gen）
+# 九、分块 LLM 文档生成配置（anchored blog pipeline）
 # ═══════════════════════════════════════════════════════════════════
 
 [chunking]
@@ -195,34 +158,25 @@ upgrade_model = ""   # 留空则不升级，例如 "qwen3-vl-32b-instruct"
 #   5 = 最接近逐句润色，适合公式/代码密集的课
 #   10 = 普通课程默认值，保留更多上下文但 prompt 仍然足够短
 # 长视频（3-4 小时）建议保持 5 或 10，chunk 越小单次 LLM 越稳。
-segment_minutes = 10
+segment_minutes = 5
 
 # 每个 chunk 最多给文本/视觉模型看的候选帧数（10 分钟段建议 15-25）
 max_images_per_chunk = 20
 
 # 同时并行处理 chunk 的并发数（文本生成、补帧、视觉验图整体受限）
+# 建议先按 CPU 核数/API 限流取平衡；纯 API 等待型负载通常 5-10 即可。
 concurrency = 5
 
-[text_clean]
-# 文本 LLM 清洗口水词时的硬下限词表
-filler_words = [
-    "那么",
-    "就是说",
-    "大家注意",
-    "咱们",
-    "啊",
-    "嗯",
-    "这个",
-    "那个",
-    "对吧",
-    "就是说啊",
-]
+# chunk 并行后端：
+#   async   = 单进程 asyncio 并发（默认，适合网络等待型负载，开销小）
+#   process = 每个 chunk 一个子进程（真正多核；适合 pHash/编码等 CPU 密集负载）
+parallel_mode = "process"
 
 [doc_gen]
 # SRT 式 + 插图 的输出文件名（保留 SRT 原结构，在对应段后插入图片引用）
 srt_filename = "srt_picture.md"
 
-# 博客式 + 插图 的输出文件名（Stage1 生成的博客 markdown + 图片）
+# 博客式 + 插图 的输出文件名（BlogGenerator 生成的博客 markdown + 图片）
 blog_filename = "blog.md"
 
 [heuristic]
@@ -230,10 +184,10 @@ blog_filename = "blog.md"
 scene_threshold = 0.4
 
 # 启发式截帧：pHash 去重阈值（> 此值视为重复）
-similarity_threshold = 0.95
+similarity_threshold = 0.7
 
 # 启发式截帧：最大候选帧数（去重前上限）
-max_frames = 200
+max_frames = 25
 
 # ── 博客锚点流水线配置（blog-anchor-pipeline）
 [blog_gen]
@@ -242,4 +196,27 @@ frame_match_tolerance = 2.0
 
 # 视觉模型 retake 补截的最大轮数
 max_retakes = 1
+
+# 文本模型最多调用次数（总次数，含首次）。
+# 例如 3 = 首次失败后最多再修/重试 2 次。
+max_calls = 3
+
+# 文本模型单次响应的最大 token 数。
+# 10 分钟密集字幕的“完整讲稿 + JSON”很容易超过旧默认 8192，
+# 被截断后会导致整个 chunk 降级成原始字幕。
+# 注意：不能超过模型支持上限；MiniMax-M3 的 Anthropic 兼容端点是 524288。
+max_tokens = 524288
+
+# 视觉模型最多调用次数（总次数，含首次）。
+# 例如 3 = 首次失败后最多再修/重试 2 次。
+vision_max_calls = 3
+
+# 视觉验图单次响应的最大 token 数。
+# 每张图要输出 keep/retake/caption/text_representation 等字段，4096 容易截断。
+# Qwen3-VL-8B-Instruct 的上限是 16384。
+vision_max_tokens = 32768
+
+# 视觉验图每次请求最多带多少张图。
+# 一次看 20 张图时模型经常漏决策；拆成小批能显著提高 JSON 完整率。
+vision_batch_size = 8
 

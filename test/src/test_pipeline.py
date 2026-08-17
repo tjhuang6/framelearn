@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from framelearn.pipeline.asr_adapter import ASRAdapter, TranscriptResult, TranscriptSegment
-from framelearn.pipeline.doc_generator import DocumentGenerator
 from framelearn.pipeline.ffmpeg_helper import FFmpegHelper
 from framelearn.pipeline.keyframe_dedup import KeyframeDeduplicator
 from framelearn.pipeline.subtitle_cleaner import SubtitleCleaner
@@ -253,63 +252,6 @@ class TestKeyframeDeduplicator:
 
 
 # ------------------------------------------------------------------
-# DocumentGenerator
-# ------------------------------------------------------------------
-
-class TestDocumentGenerator:
-    def test_mode_textbook_uses_correct_prompt(self, tmp_path):
-        frame = tmp_path / "frame.jpg"
-        frame.touch()
-
-        captured_prompt = {}
-
-        def fake_generate(keyframes, subtitle, mode, model_override=None):
-            # Capture the prompt that would be sent
-            from framelearn.pipeline.doc_generator import DocumentGenerator as DG
-            gen_inner = DG.__new__(DG)
-            captured_prompt["text"] = gen_inner._build_prompt(keyframes, subtitle, "textbook")
-            return "# 教材\n完整段落..."
-
-        gen = DocumentGenerator()
-        gen._generate_single = fake_generate
-        result = gen.generate([(frame, 0.0)], "字幕内容", "测试", mode="textbook")
-
-        assert "教材" in result
-        assert "技术图书编辑" in captured_prompt["text"]
-
-    def test_mode_notes_uses_correct_prompt(self, tmp_path):
-        frame = tmp_path / "frame.jpg"
-        frame.touch()
-
-        captured_prompt = {}
-
-        def fake_generate(keyframes, subtitle, mode, model_override=None):
-            from framelearn.pipeline.doc_generator import DocumentGenerator as DG
-            gen_inner = DG.__new__(DG)
-            captured_prompt["text"] = gen_inner._build_prompt(keyframes, subtitle, "notes")
-            return "## 知识点\n- 要点1\n- 要点2"
-
-        gen = DocumentGenerator()
-        gen._generate_single = fake_generate
-        result = gen.generate([(frame, 0.0)], "字幕内容", "测试", mode="notes")
-
-        assert "知识点" in result
-        assert "技术博客作者" in captured_prompt["text"]
-
-    def test_generate_error_raises(self, tmp_path):
-        frame = tmp_path / "frame.jpg"
-        frame.touch()
-
-        def fake_generate(keyframes, subtitle, mode, model_override=None):
-            raise RuntimeError("API failed")
-
-        gen = DocumentGenerator()
-        gen._generate_single = fake_generate
-        with pytest.raises(RuntimeError, match="Document generation failed"):
-            gen.generate([(frame, 0.0)], "字幕", "测试")
-
-
-# ------------------------------------------------------------------
 # FFmpegHelper.capture_single_frame
 # ------------------------------------------------------------------
 
@@ -347,96 +289,3 @@ class TestFFmpegHelperCaptureSingleFrame:
         cmd = mock_run.call_args[0][0]
         # 3661.5s = 1h 1m 1.5s → 01:01:01.500
         assert "01:01:01.500" in cmd
-
-
-# ------------------------------------------------------------------
-# DocumentGenerator._review_segment
-# ------------------------------------------------------------------
-
-class TestDocumentGeneratorReview:
-    def setup_method(self):
-        self.gen = DocumentGenerator()
-
-    def test_review_ok_for_good_content(self):
-        # 构造 > 100 字的内容，且无口水词、无视觉关键词
-        body = "Python 中类的使用方式包括继承和方法重写。" * 8  # ~160 字
-        draft = f"# 本节内容\n\n{body}"
-        review = self.gen._review_segment(draft, "今天讲Python")
-        assert review["ok"] is True
-        assert review["issues"] == []
-
-    def test_review_catches_too_short(self):
-        draft = "# 简短\n太短了"
-        review = self.gen._review_segment(draft, "字幕")
-        assert review["ok"] is False
-        assert any("短" in issue for issue in review["issues"])
-
-    def test_review_catches_missing_image(self):
-        draft = "# 讲解\n" + "x" * 150  # 够长，但没有图片引用
-        review = self.gen._review_segment(draft, "如图所示，这里展示了架构")
-        assert review["ok"] is False
-        assert any("关键帧" in issue for issue in review["issues"])
-
-    def test_review_ok_with_image_ref(self):
-        draft = "# 架构\n\n如图所示，我们可以看到整体结构。\n\n![架构图](src/frame_00h01m00s.jpg)\n\n" + "x" * 100
-        review = self.gen._review_segment(draft, "如图所示，展示架构")
-        # missing_image issue should not fire
-        assert not any("关键帧" in issue for issue in review["issues"])
-
-
-# ------------------------------------------------------------------
-# DocumentGenerator._generate_with_review (Tasks 73-75)
-# ------------------------------------------------------------------
-
-class TestDocumentGeneratorWithReview:
-    def test_retry_limit_respected(self, tmp_path):
-        """质量评审失败时最多重试 3 次。"""
-        frame = tmp_path / "frame.jpg"
-        frame.touch()
-
-        call_count = {"n": 0}
-
-        def short_draft(*args, **kwargs):
-            call_count["n"] += 1
-            return "太短"  # always fails review
-
-        gen = DocumentGenerator()
-        gen._generate_single = short_draft
-
-        result = gen._generate_with_review([(frame, 0.0)], "今天讲Python", "notes")
-
-        # Must have called exactly 3 times (3 attempts)
-        assert call_count["n"] == 3
-        # Fallback: returns the original subtitle
-        assert result == "今天讲Python"
-
-    def test_returns_immediately_on_good_draft(self, tmp_path):
-        """质量通过时不重试。"""
-        frame = tmp_path / "frame.jpg"
-        frame.touch()
-
-        call_count = {"n": 0}
-        good_draft = "# 内容\n\n" + "这是高质量内容。" * 20  # long enough
-
-        def good_generate(*args, **kwargs):
-            call_count["n"] += 1
-            return good_draft
-
-        gen = DocumentGenerator()
-        gen._generate_single = good_generate
-
-        result = gen._generate_with_review([(frame, 0.0)], "今天讲Python", "notes")
-        assert call_count["n"] == 1
-        assert result == good_draft
-
-    def test_fallback_preserves_subtitle(self, tmp_path):
-        """第 3 次失败后，降级返回原始字幕内容（不丢失）。"""
-        frame = tmp_path / "frame.jpg"
-        frame.touch()
-
-        gen = DocumentGenerator()
-        gen._generate_single = lambda *a, **kw: "x"  # always too short
-
-        original_subtitle = "原始字幕内容，用于降级保存"
-        result = gen._generate_with_review([(frame, 0.0)], original_subtitle, "notes")
-        assert original_subtitle in result

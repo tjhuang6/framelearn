@@ -15,7 +15,7 @@ FrameLearn converts local and online programming tutorial videos into Markdown l
   - SiliconFlow SenseVoice for simpler transcription without timestamps.
 - Accepts an existing `.txt`, `.srt`, or `.vtt` file through `--subtitle` to skip ASR.
 - **Anchored blog pipeline**: SRT is split into configurable chunks (default 10 minutes), candidate frame markers are inserted into each chunk, the text LLM lightly polishes the transcript into lecture notes that keep the speaker's voice and `[[FRAME:id@timestamp]]` anchors, the program binds candidate frames or asks FFmpeg for precise captures, and the Qwen3-VL vision model only validates frames (retake / keep / caption / text_representation).
-- Chunks are processed in parallel, bounded by `[chunking].concurrency`.
+- Chunks are processed in parallel: `async` uses asyncio (default); `process` uses one subprocess per chunk for true multi-core. Bounded by `[chunking].concurrency`.
 - Always produces two Markdown files: `srt_picture.md` (preserves SRT structure, timestamps + embedded images) and `blog.md` (complete illustrated transcript in the speaker's voice + the same images).
 - Heuristic frame extraction (FFmpeg scene detection + pHash dedup) is summarized by SHA256 in the manifest, so a config change or a different frame set invalidates the cache automatically.
 - Routes `ask` through a text LLM API.
@@ -33,7 +33,6 @@ FrameLearn converts local and online programming tutorial videos into Markdown l
 - `summarize` only prints instructions for an external `/summarize-learning` skill.
 - `ask` is a general workspace conversation, not a tutorial-grounded RAG implementation.
 
-- The legacy `agent_keyframe_selector.py` and the `notes` / `visual_script` modes of `doc_generator.py` are superseded by the chunked flow and kept only for back-compat.
 
 ## Install
 
@@ -82,15 +81,12 @@ proxy = ""                     # download proxy; falls back to DOWNLOAD_PROXY/HT
 segment_minutes = 10          # video minutes per chunk; 5-10 recommended
 max_images_per_chunk = 20     # max candidate frames shown to the LLM per chunk
 concurrency = 5               # max chunks processed in parallel
-
-[text_clean]
-# legacy chunked pipeline; the current blog-anchor pipeline does not call TextCleaner
-filler_words = ["那么", "就是说", "大家注意", "咱们", "啊", "嗯", "这个", "那个", "对吧"]
+parallel_mode = "async"      # async (default) or process for true multi-core
 
 [heuristic]
 scene_threshold = 0.4         # FFmpeg scene-detection threshold (lower = more sensitive)
 similarity_threshold = 0.95   # pHash dedup threshold
-max_frames = 200
+max_frames = 20
 
 [doc_gen]
 srt_filename = "srt_picture.md"   # SRT structure + images
@@ -99,6 +95,11 @@ blog_filename = "blog.md"         # complete illustrated transcript in the speak
 [blog_gen]
 frame_match_tolerance = 2.0       # anchor-to-candidate timestamp tolerance (seconds)
 max_retakes = 1                   # vision model retake budget
+max_calls = 3                     # max text-model calls incl. first
+vision_max_calls = 3              # max vision-model calls incl. first
+max_tokens = 16384                # text model output token limit
+vision_max_tokens = 8192          # vision model output token limit
+vision_batch_size = 8             # images per vision review batch
 ```
 
 With those defaults, configure at least:

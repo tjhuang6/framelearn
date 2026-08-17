@@ -185,7 +185,9 @@ MODEL_CATALOG: dict[str, ModelCapabilities] = {
         input=("text", "image"),
         reasoning=True,
         context_window=1_000_000,
-        max_tokens=128_000,
+        # The MiniMax Anthropic-compatible endpoint rejects requests above
+        # this limit (error 2013: "does not support max tokens > 524288").
+        max_tokens=524_288,
     ),
     "MiniMax-M2.7": ModelCapabilities(
         name="MiniMax-M2.7",

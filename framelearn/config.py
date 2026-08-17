@@ -54,7 +54,7 @@ def get(key: str, default: Any = None) -> Any:
 
     Examples:
         get("text.text_mode") → "api"
-        get("video.scene_threshold") → 0.3
+        get("heuristic.scene_threshold") → 0.4
     """
     config = load_config()
     parts = key.split(".")
@@ -87,7 +87,6 @@ def _default_config() -> dict[str, Any]:
             "vision_mode": "api",
             "vision_provider": "siliconflow",
             "vision_model": "Qwen/Qwen3-VL-8B-Instruct",
-            "vision_agent_max_retries": 5,
         },
         "privacy": {
             "privacy_hints": False,
@@ -105,11 +104,6 @@ def _default_config() -> dict[str, Any]:
         },
         "video": {
             "output_dir": "./output",
-            "scene_threshold": 0.4,
-            "similarity_threshold": 0.95,
-            "fallback_interval": 30,
-            "max_keyframes": 100,
-            "image_quality": 85,
             "keep_temp_files": False,
         },
         "download": {
@@ -125,28 +119,11 @@ def _default_config() -> dict[str, Any]:
             "tone": "balanced",
             "detail_level": "detailed",
         },
-        "agent": {
-            "keyframe_selection": True,
-            "quality_review": False,
-            "upgrade_model": "",
-        },
         "chunking": {
             "segment_minutes": 10,
             "max_images_per_chunk": 20,
             "concurrency": 5,
-        },
-        "text_clean": {
-            "filler_words": [
-                "那么",
-                "就是说",
-                "大家注意",
-                "咱们",
-                "啊",
-                "嗯",
-                "这个",
-                "那个",
-                "对吧",
-            ],
+            "parallel_mode": "async",
         },
         "doc_gen": {
             "srt_filename": "srt_picture.md",
@@ -160,5 +137,10 @@ def _default_config() -> dict[str, Any]:
         "blog_gen": {
             "frame_match_tolerance": 2.0,
             "max_retakes": 1,
+            "max_calls": 3,
+            "vision_max_calls": 3,
+            "max_tokens": 16384,
+            "vision_max_tokens": 8192,
+            "vision_batch_size": 8,
         },
     }

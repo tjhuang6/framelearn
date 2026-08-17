@@ -15,7 +15,7 @@ FrameLearn 将本地及线上编程教学视频转换为带关键帧的 Markdown
   - 硅基流动 SenseVoice：实现简单，但不返回时间戳。
 - 可通过 `--subtitle` 直接使用已有 `.txt`、`.srt` 或 `.vtt`，跳过 ASR。
 - **博客锚点流水线**：先按时长切段并插入启发式帧标记，文本 LLM 把字幕润色成保留老师语气、接近“边看视频边做笔记”的讲稿，并输出 `[[FRAME:id@timestamp]]` 锚点；程序绑定候选帧或 FFmpeg 精准补截；Qwen3-VL 视觉模型只负责验图（retake/keep/caption/text_representation），最后程序拼装 `blog.md` 与 `srt_picture.md`。
-- 长视频的每个 chunk 会并行处理，并发数由 `[chunking].concurrency` 控制。
+- 长视频的每个 chunk 会并行处理：默认 `async` 用 asyncio 并发，`process` 用多进程多核；并发数由 `[chunking].concurrency` 控制。
 - 每次运行固定生成两个 Markdown：`srt_picture.md`（保留 SRT 段结构、时间戳 + 配图）和 `blog.md`（保留讲述人语气的完整图文讲稿 + 配图）。
 - 启发式截帧（ffmpeg 场景检测 + pHash 去重）结果会被 SHA256 摘要写入 manifest，配置或视频变化时自动重跑。
 - `ask` 通过文本 LLM API 回答通用问题。
@@ -37,7 +37,6 @@ FrameLearn 将本地及线上编程教学视频转换为带关键帧的 Markdown
 - `ask` 当前不是“只检索已生成教材”的 RAG 问答；它是工作目录中的通用 API 对话。
 - 快手接口风控较严，无 Cookie 时可能无法解析；遇到验证码请配置 `KUAISHOU_COOKIE`。
 
-- 旧版 `agent_keyframe_selector.py` / `doc_generator.py`（`notes` / `visual_script` mode）已被分块流程替代，保留仅为向后兼容。
 
 ## 安装
 
@@ -87,16 +86,13 @@ proxy = ""                     # 下载代理；留空则读 DOWNLOAD_PROXY/HTTP
 [chunking]
 segment_minutes = 10          # 每段视频时长（分钟），推荐 5-10
 max_images_per_chunk = 20     # 单段最多给 LLM 看的候选帧数
-concurrency = 5               # 并行处理 chunk 的并发上限
-
-[text_clean]
-# 旧版分块流水线使用；当前 blog-anchor 流水线暂不调用 TextCleaner
-filler_words = ["那么", "就是说", "大家注意", "咱们", "啊", "嗯", "这个", "那个", "对吧"]
+concurrency = 5               # chunk 并发上限
+parallel_mode = "async"      # async=asyncio 并发（默认）；process=多进程多核
 
 [heuristic]
 scene_threshold = 0.4         # ffmpeg 场景检测阈值（越低越敏感）
 similarity_threshold = 0.95   # pHash 去重阈值
-max_frames = 200
+max_frames = 20
 
 [doc_gen]
 srt_filename = "srt_picture.md"   # 保留 SRT 结构 + 配图
@@ -105,6 +101,11 @@ blog_filename = "blog.md"         # 保留老师语气的完整图文讲稿 + �
 [blog_gen]
 frame_match_tolerance = 2.0       # 锚点时间戳与候选帧匹配容差（秒）
 max_retakes = 1                   # 视觉模型 retake 补截上限
+max_calls = 3                     # 文本模型最多调用总次数（含首次）
+vision_max_calls = 3              # 视觉模型最多调用总次数（含首次）
+max_tokens = 16384                # 文本模型输出 token 上限
+vision_max_tokens = 8192          # 视觉模型输出 token 上限
+vision_batch_size = 8             # 视觉验图每批图片数
 ```
 
 使用默认配置至少需要：
@@ -151,7 +152,7 @@ await vision_client.complete_interleaved_async([
 
 - `provider` 支持别名，例如 `minimax`、`minimaxi`、`moonshot`、`anthropic`、`qwen`。
 - 模型能力目录来自 cc-switch 的 `piModelCatalog` 思路：已知 text-only 模型（如 `deepseek-chat`）被配置为视觉模型时，工厂会直接报错并列出 image-capable 候选。
-- 旧的 `provider_adapter.call_text_llm()` / `call_llm()` 等 API 保持兼容。
+- `provider_adapter.call_text_llm()` / `call_llm()` 等函数也可以直接使用。
 
 ## 使用
 

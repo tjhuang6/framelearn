@@ -15,6 +15,7 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 
+from framelearn.errors import ConfigurationError
 from framelearn.llm.catalog import (
     PROVIDER_PRESETS,
     normalize_provider_key,
@@ -337,12 +338,7 @@ async def _dispatch_async_interleaved(
     )
     async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.post(url, headers=headers, json=body)
-    if response.status_code != 200:
-        raise httpx.HTTPStatusError(
-            f"Provider '{config.provider}' returned {response.status_code}: {response.text}",
-            request=response.request,
-            response=response,
-        )
+    _raise_for_http_status(response, config.provider)
     return _parse_openai_response(response.json())
 
 
@@ -549,6 +545,31 @@ def _validate_api_key(config: ProviderConfig) -> None:
         )
 
 
+_RETRYABLE_HTTP_STATUSES = {408, 425, 429}
+
+
+def _raise_for_http_status(response, provider: str) -> None:
+    """Raise the right exception for a non-200 provider response.
+
+    Transient failures stay as ``httpx.HTTPStatusError`` so callers can
+    retry. Permanent failures (bad key, bad model, invalid params) become
+    :class:`ConfigurationError` and must abort the run immediately.
+    """
+    if response.status_code == 200:
+        return
+    detail = (response.text or "").strip()
+    if len(detail) > 1200:
+        detail = detail[:1200] + "…"
+    message = f"Provider '{provider}' returned {response.status_code}: {detail}"
+    if response.status_code in _RETRYABLE_HTTP_STATUSES or response.status_code >= 500:
+        raise httpx.HTTPStatusError(
+            message,
+            request=response.request,
+            response=response,
+        )
+    raise ConfigurationError(message)
+
+
 def _dispatch_sync(
     config: ProviderConfig,
     prompt: str,
@@ -570,12 +591,7 @@ def _dispatch_sync(
         url, headers, body = _build_openai_request(config, prompt, images, max_tokens)
 
     response = httpx.post(url, headers=headers, json=body, timeout=timeout)
-    if response.status_code != 200:
-        raise httpx.HTTPStatusError(
-            f"Provider '{config.provider}' returned {response.status_code}: {response.text}",
-            request=response.request,
-            response=response,
-        )
+    _raise_for_http_status(response, config.provider)
 
     data = response.json()
     if provider_type == "google":
@@ -609,12 +625,7 @@ async def _dispatch_async(
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.post(url, headers=headers, json=body)
-    if response.status_code != 200:
-        raise httpx.HTTPStatusError(
-            f"Provider '{config.provider}' returned {response.status_code}: {response.text}",
-            request=response.request,
-            response=response,
-        )
+    _raise_for_http_status(response, config.provider)
 
     data = response.json()
     if provider_type == "google":

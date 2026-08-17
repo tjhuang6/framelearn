@@ -53,30 +53,14 @@ def print_manifest(manifest_path: Path):
     if manifest.config:
         print(f"\n⚙️  Configuration:")
         config_dict = {
-            "Doc Mode": manifest.config.doc_mode,
-            "Scene Threshold": manifest.config.scene_threshold,
-            "Max Keyframes": manifest.config.max_keyframes,
-            "Segment Duration": f"{manifest.config.segment_duration}s",
-            "Vision": f"{manifest.config.vision_provider} / {manifest.config.vision_model}",
+            "Mode": manifest.config.mode,
             "ASR": f"{manifest.config.asr_provider} / {manifest.config.asr_model}",
-            "Keyframe Selection": "✅" if manifest.config.keyframe_selection else "❌",
-            "Quality Review": "✅" if manifest.config.quality_review else "❌",
+            "Heuristic Scene Threshold": manifest.config.heuristic_scene_threshold,
+            "Heuristic Similarity Threshold": manifest.config.heuristic_similarity_threshold,
+            "Heuristic Max Frames": manifest.config.heuristic_max_frames,
         }
         for key, value in config_dict.items():
             print(f"   {key}: {value}")
-    
-    # Segments
-    if manifest.segments_total > 0:
-        completed = sum(1 for seg in manifest.segments_completed if seg.completed)
-        print(f"\n📊 Segments: {completed}/{manifest.segments_total} completed")
-        
-        if manifest.segments_completed:
-            print(f"\n   Status by segment:")
-            for seg in sorted(manifest.segments_completed, key=lambda s: s.index):
-                status = "✅" if seg.completed else "❌"
-                time = format_timestamp(seg.timestamp)
-                error_msg = f" ({seg.error})" if seg.error else ""
-                print(f"   {status} Segment {seg.index + 1}: {time}{error_msg}")
     
     print(f"\n{'='*60}\n")
 
@@ -90,12 +74,6 @@ def find_manifests(directory: Path) -> list[Path]:
     if src_dir.exists():
         for pattern in ["*_manifest.json", "manifest.json"]:
             manifests.extend(src_dir.glob(pattern))
-    
-    # Check segment directories
-    for seg_dir in directory.glob("segments_*"):
-        manifest = seg_dir / "manifest.json"
-        if manifest.exists():
-            manifests.append(manifest)
     
     return sorted(manifests)
 
@@ -126,7 +104,6 @@ def main():
             print("\nExpected locations:")
             print("  - output/video_name/src/subtitle_manifest.json")
             print("  - output/video_name/src/keyframe_manifest.json")
-            print("  - output/video_name/segments_*/manifest.json")
             sys.exit(1)
         
         print(f"\n🔍 Found {len(manifests)} manifest(s) in {path}")

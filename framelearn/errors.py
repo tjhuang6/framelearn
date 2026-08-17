@@ -13,6 +13,14 @@ class FrameLearnError(Exception):
     """Base class for all FrameLearn domain errors."""
 
 
+class ConfigurationError(FrameLearnError):
+    """Raised when required configuration is missing, invalid, or rejected.
+
+    These failures are fatal: the CLI should exit immediately instead of
+    falling back per chunk or making the user wait through a long run.
+    """
+
+
 class DownloadError(FrameLearnError):
     """Raised when an online video cannot be downloaded.
 
@@ -25,6 +33,15 @@ class PipelineExecutionError(FrameLearnError):
     """Raised when VideoPipeline.run() reports a business failure.
 
     (e.g. missing FFmpeg, ASR failure, document generation failure).
+    """
+
+
+class GenerationError(FrameLearnError):
+    """Raised when an LLM stage cannot produce valid output after retries.
+
+    The pipeline deliberately does not degrade to raw subtitles or keep
+    unvalidated frames: a generation failure aborts the whole run so the
+    user never receives silently-lower-quality output.
     """
 
 

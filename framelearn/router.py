@@ -3,7 +3,12 @@
 import os
 from typing import Optional
 
-from framelearn.downloaders import download_video, extract_url, is_supported_video_url
+from framelearn.downloaders import (
+    detect_platform,
+    download_video,
+    extract_url,
+    is_supported_video_url,
+)
 from framelearn.errors import DownloadError, PipelineExecutionError
 
 
@@ -116,6 +121,22 @@ class CommandRouter:
             raise ValueError(f"字幕文件不存在：{subtitle_path}")
 
         url = extract_url(source)
+        platform = detect_platform(url) if url else None
+
+        # Fail fast on configuration that can never work, before downloading
+        # or transcribing hours of media.
+        from framelearn.preflight import (
+            validate_asr_config,
+            validate_chunking_config,
+            validate_download_config,
+            validate_llm_config,
+        )
+
+        validate_llm_config()
+        validate_chunking_config()
+        if platform:
+            validate_download_config(platform)
+
         downloaded_subtitle_path: str | None = None
         if url:
             if not self._is_valid_video_url(url):
@@ -143,6 +164,11 @@ class CommandRouter:
                 raise ValueError(f"文件不存在：{pipeline_source}")
             if not self._is_video_file(pipeline_source):
                 raise ValueError("不支持的文件格式，仅支持常见视频格式")
+
+        # If neither an explicit --subtitle nor an online subtitle exists,
+        # the pipeline will run ASR — validate that configuration now.
+        if not subtitle_path and not downloaded_subtitle_path:
+            validate_asr_config()
 
         from framelearn.pipeline import VideoPipeline
 

@@ -38,9 +38,6 @@ def test_privacy_tracker_integration():
             "provider": "dashscope",
             "model": "qwen-audio-3.0-asr-flash-filetrans",
         },
-        "agent": {
-            "keyframe_selection": False,
-        },
         "video": {
             "output_dir": "./output",
             "keep_temp_files": False,

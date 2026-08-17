@@ -8,6 +8,7 @@ from framelearn.pipeline.chunked_doc_generator import (
     ChunkedDocGenerator,
     _copy_kept_frame_to_src,
     _globalize_chunk_anchors,
+    _resolve_chunk_anchors,
 )
 from framelearn.pipeline.heuristic_frame_extractor import CandidateFrame
 from framelearn.pipeline.srt_chunker import SRTChunk
@@ -80,15 +81,20 @@ def test_resolve_reuse_anchor_binds_real_frame(tmp_path):
         source_frame_path=str(frame),
         reason="x",
     )
-    items = ChunkedDocGenerator()._resolve_chunk_anchors(
-        _chunk(), [request], frames, video_path="unused.mp4", temp_frames=tmp_path, local_offset=1
+    items = _resolve_chunk_anchors(
+        _chunk(), [request], frames, video_path="unused.mp4",
+        temp_frames=tmp_path, frame_match_tolerance=2.0, local_offset=1,
     )
     assert len(items) == 1
     assert items[0].frame_path == str(frame)
     assert items[0].timestamp == 53.0
 
 
-def test_resolve_invalid_reuse_anchor_is_dropped(tmp_path):
+def test_resolve_invalid_reuse_anchor_aborts_without_degrading(tmp_path):
+    import pytest
+
+    from framelearn.errors import GenerationError
+
     request = FrameRequest(
         anchor_id="c0_a1",
         srt_id=1,
@@ -97,10 +103,11 @@ def test_resolve_invalid_reuse_anchor_is_dropped(tmp_path):
         source_frame_path="missing.jpg",
         reason="x",
     )
-    items = ChunkedDocGenerator()._resolve_chunk_anchors(
-        _chunk(), [request], [], video_path="unused.mp4", temp_frames=tmp_path, local_offset=1
-    )
-    assert items == []
+    with pytest.raises(GenerationError):
+        _resolve_chunk_anchors(
+            _chunk(), [request], [], video_path="unused.mp4",
+            temp_frames=tmp_path, frame_match_tolerance=2.0, local_offset=1,
+        )
 
 
 def test_resolve_new_capture_matches_within_tolerance(tmp_path):
@@ -115,8 +122,9 @@ def test_resolve_new_capture_matches_within_tolerance(tmp_path):
         source_frame_path=None,
         reason="x",
     )
-    items = ChunkedDocGenerator()._resolve_chunk_anchors(
-        _chunk(), [request], frames, video_path="unused.mp4", temp_frames=tmp_path, local_offset=1
+    items = _resolve_chunk_anchors(
+        _chunk(), [request], frames, video_path="unused.mp4",
+        temp_frames=tmp_path, frame_match_tolerance=2.0, local_offset=1,
     )
     assert len(items) == 1
     assert items[0].frame_path == str(frame)
@@ -144,8 +152,9 @@ def test_resolve_new_capture_outside_tolerance_calls_ffmpeg(tmp_path, monkeypatc
         "framelearn.pipeline.ffmpeg_helper.FFmpegHelper.capture_single_frame",
         staticmethod(fake_capture),
     )
-    items = ChunkedDocGenerator()._resolve_chunk_anchors(
-        _chunk(), [request], [], video_path="unused.mp4", temp_frames=tmp_path, local_offset=1
+    items = _resolve_chunk_anchors(
+        _chunk(), [request], [], video_path="unused.mp4",
+        temp_frames=tmp_path, frame_match_tolerance=2.0, local_offset=1,
     )
     assert captured and captured[0][0] == 54.0
     assert len(items) == 1
@@ -177,3 +186,27 @@ def test_chunk_size_is_configurable(monkeypatch):
     assert generator.segment_minutes == 7.5
     assert generator.max_images_per_chunk == 18
     assert generator.concurrency == 3
+
+
+def test_parallel_mode_defaults_to_async_and_accepts_process_alias(monkeypatch):
+    import framelearn.pipeline.chunked_doc_generator as module
+
+    original_get = module.config_get
+
+    def fake_get(key, default=None):
+        if key == "chunking.parallel_mode":
+            return "async"
+        return original_get(key, default)
+
+    monkeypatch.setattr(module, "config_get", fake_get)
+    generator = module.ChunkedDocGenerator()
+    assert generator.parallel_mode == "async"
+    assert ChunkedDocGenerator(parallel_mode="process").parallel_mode == "process"
+    assert ChunkedDocGenerator(parallel_mode="multiprocessing").parallel_mode == "process"
+
+
+def test_parallel_mode_rejects_unknown_value():
+    import pytest
+
+    with pytest.raises(ValueError, match="parallel_mode"):
+        ChunkedDocGenerator(parallel_mode="threads")
