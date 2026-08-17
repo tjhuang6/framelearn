@@ -292,8 +292,8 @@ video
 | `retake_timestamp` | 重截的精准时间点 | 仅 `retake=true` 时有效 |
 | `keep_image` | 图片是否保留 | `true` 保留图片；`false` 删除整个锚点 |
 | `content_type` | 图片内容类型 | `text_slide` / `terminal` / `code` / `diagram` / `formula` / `table` / `screenshot` / `face` / `blank` / `transition` / `other` |
-| `caption` | 图片说明 | `keep_image=true` 且非空时插入图片下方 |
-| `text_representation` | 图片中的文字内容 | `keep_image=true` 且非空时继续插入 caption 下方 |
+| `caption` | 图片说明 | `keep_image=true` 且非空时以 `> *caption*` 引用块插入图片下方（`blog.md`）；`srt_picture.md` 中为普通斜体行 |
+| `text_representation` | 图片中的文字内容 | `keep_image=true` 且非空时继续以 `>` 引用块插入 caption 下方（`blog.md`）；`srt_picture.md` 中为普通段落 |
 
 ### BlogGenerator 锚点示例
 

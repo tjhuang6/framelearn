@@ -196,6 +196,42 @@ def test_md_assembler_replaces_kept_anchor_and_removes_discarded(tmp_path):
     assert "src/a.jpg" in blog
     assert "说明" in blog
     assert "FRAME" not in blog
+    # blog.md: caption renders as a blockquote annotation, not plain prose.
+    assert "> *说明*" in blog
+    assert "\n*说明*" not in blog
+
+
+def test_md_assembler_blog_quotes_caption_and_text_representation():
+    assembler = MDAssembler()
+    kept = FrameEvaluation(
+        anchor_id="a1",
+        srt_id=1,
+        frame_path=str(Path("src/a.jpg")),
+        timestamp=53.0,
+        keep_image=True,
+        content_type="code",
+        caption="终端输出",
+        text_representation="第一行\n\n第二行",
+        reason="ok",
+    )
+    blog = assembler.assemble_blog_anchored(
+        ["正文 [[FRAME:a1@53.0]] 尾"],
+        {"a1": kept},
+        video_title="测试",
+    )
+    assert "> *终端输出*" in blog
+    assert "> 第一行\n>\n> 第二行" in blog
+    # 正文紧随引用块之后仍然保留
+    assert blog.rstrip().endswith("尾")
+
+    srt_md = assembler.assemble_srt_anchored(
+        [TranscriptSegment(text="字幕", start=0.0, end=1.0)],
+        {"a1": kept},
+        video_title="测试",
+    )
+    # srt_picture.md keeps the plain form (its subtitles are blockquotes).
+    assert "*终端输出*" in srt_md
+    assert "> *终端输出*" not in srt_md
 
 
 def test_parse_evaluations_accepts_anchor_id_without_global_prefix():

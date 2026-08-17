@@ -87,16 +87,34 @@ class MDAssembler:
         self,
         evaluation: FrameEvaluation,
         image_prefix: str = "src/",
+        quote_annotation: bool = False,
     ) -> str:
-        """Render a kept frame and its optional caption/text content."""
+        """Render a kept frame and its optional caption/text content.
+
+        ``quote_annotation=True`` renders caption and text_representation
+        as one Markdown blockquote (``>``) so they read as figure
+        annotations instead of body prose — used for ``blog.md``.
+        ``srt_picture.md`` keeps the plain (non-quoted) form because its
+        subtitle segments are themselves blockquotes.
+        """
         filename = Path(evaluation.frame_path).name
         lines = [f"![图]({image_prefix}{filename})"]
+        quote_parts: list[str] = []
         if evaluation.caption.strip():
-            lines.append("")
-            lines.append(f"*{evaluation.caption.strip()}*")
+            quote_parts.append(f"*{evaluation.caption.strip()}*")
         if evaluation.text_representation.strip():
-            lines.append("")
-            lines.append(evaluation.text_representation.strip())
+            if quote_parts:
+                quote_parts.append("")
+            quote_parts.extend(evaluation.text_representation.strip().splitlines())
+        if not quote_parts:
+            return "\n".join(lines)
+        lines.append("")
+        if quote_annotation:
+            lines.extend(
+                f"> {part}" if part.strip() else ">" for part in quote_parts
+            )
+        else:
+            lines.extend(quote_parts)
         return "\n".join(lines)
 
     def assemble_blog_anchored(
@@ -115,7 +133,9 @@ class MDAssembler:
             evaluation = evaluations_by_anchor.get(match.group("anchor_id"))
             if evaluation is None or not evaluation.keep_image:
                 return ""
-            return self._render_kept_frame(evaluation, image_prefix)
+            return self._render_kept_frame(
+                evaluation, image_prefix, quote_annotation=True
+            )
 
         lines = [f"# {video_title}", ""]
         for chunk_md in all_blog_markdowns:
