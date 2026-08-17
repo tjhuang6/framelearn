@@ -142,5 +142,7 @@ def _default_config() -> dict[str, Any]:
             "max_tokens": 16384,
             "vision_max_tokens": 8192,
             "vision_batch_size": 8,
+            "dump_raw_responses": True,
+            "dump_raw_on_success": False,
         },
     }

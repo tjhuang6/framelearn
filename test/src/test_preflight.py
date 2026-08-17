@@ -37,3 +37,42 @@ def test_malformed_bilibili_cookie_raises(monkeypatch):
     monkeypatch.setenv("BILIBILI_COOKIE", "not-a-cookie")
     with pytest.raises(ConfigurationError, match="Cookie"):
         preflight.validate_download_config("bilibili")
+
+
+def test_dump_raw_responses_must_be_boolean(monkeypatch):
+    monkeypatch.setattr(
+        preflight,
+        "config_get",
+        lambda key, default=None: "yes" if key == "blog_gen.dump_raw_responses" else (
+            False if key == "blog_gen.dump_raw_on_success" else default
+        ),
+    )
+    with pytest.raises(ConfigurationError, match="dump_raw_responses 必须是布尔值"):
+        preflight.validate_chunking_config()
+
+
+def test_dump_raw_on_success_must_be_boolean(monkeypatch):
+    monkeypatch.setattr(
+        preflight,
+        "config_get",
+        lambda key, default=None: 1 if key == "blog_gen.dump_raw_on_success" else (
+            True if key == "blog_gen.dump_raw_responses" else default
+        ),
+    )
+    with pytest.raises(ConfigurationError, match="dump_raw_on_success 必须是布尔值"):
+        preflight.validate_chunking_config()
+
+
+def test_dump_raw_booleans_default_to_disabled_failure_only(monkeypatch):
+    """Defaults: dump_raw_responses=True, dump_raw_on_success=False."""
+    captured = {}
+
+    def fake_get(key, default=None):
+        captured[key] = default
+        return default
+
+    monkeypatch.setattr(preflight, "config_get", fake_get)
+    # No exception raised.
+    preflight.validate_chunking_config()
+    assert captured["blog_gen.dump_raw_responses"] is True
+    assert captured["blog_gen.dump_raw_on_success"] is False

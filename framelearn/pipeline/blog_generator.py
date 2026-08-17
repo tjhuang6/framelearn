@@ -10,9 +10,11 @@ those anchors to real frames.
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from framelearn.config import get as config_get
 from framelearn.errors import ConfigurationError, GenerationError
@@ -501,15 +503,57 @@ class BlogGenerator:
         self,
         chunk: SRTChunk,
         frames: list[CandidateFrame],
+        raw_dump_path: Path | None = None,
+        dump_only_on_failure: bool = True,
     ) -> BlogGeneratorOutput:
         """Generate blog markdown and frame requests for one chunk.
 
         There is deliberately no raw-subtitle fallback. Invalid output is
         repaired / retried, and if the model still cannot produce valid
         output the whole run fails with :class:`GenerationError`.
+
+        ``raw_dump_path``, when provided, receives every raw model
+        response (one JSON object per attempt, with the chunk index and
+        attempt number). This is the post-mortem trail for runs where
+        a chunk fails to produce valid output — without it the only
+        evidence is the ``GenerationError`` raised at the end of the
+        retry loop.
+
+        ``dump_only_on_failure`` controls whether successful parses
+        also land in the dump. Defaults to True so a clean run does
+        not produce a giant audit file; failures always dump regardless.
         """
         chunk_text = build_annotated_srt(chunk, frames)
         prompt = BLOG_GENERATOR_PROMPT.format(chunk_text=chunk_text)
+
+        def _dump_raw(
+            response: str, attempt: int, parse_error: str | None
+        ) -> None:
+            if raw_dump_path is None:
+                return
+            if dump_only_on_failure and parse_error is None:
+                # Success path: caller has not asked for an audit trail.
+                return
+            try:
+                raw_dump_path.parent.mkdir(parents=True, exist_ok=True)
+                with raw_dump_path.open("a", encoding="utf-8") as fh:
+                    fh.write(
+                        json.dumps(
+                            {
+                                "stage": "blog_generator",
+                                "chunk_index": chunk.index,
+                                "attempt": attempt,
+                                "parse_error": parse_error,
+                                "response_chars": len(response),
+                                "response": response,
+                            },
+                            ensure_ascii=False,
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                # Dump failures must never mask the real failure path.
+                pass
 
         last_error: Exception | None = None
         last_response: str | None = None
@@ -536,7 +580,14 @@ class BlogGenerator:
                 )
                 if parsed is None:
                     last_response = response
+                    _dump_raw(response, attempt, "schema_mismatch")
                     raise ValueError("BlogGenerator response did not match schema")
+
+                # Strict (or lenient-recovered) parse succeeded; persist
+                # the response so a future run can audit what the model
+                # actually produced (unless the caller asked us to skip
+                # success-path auditing).
+                _dump_raw(response, attempt, None)
 
                 if strict_parsed is None:
                     # The strict schema failed but the lenient parser
@@ -558,10 +609,23 @@ class BlogGenerator:
                 if attempt < self.max_retries:
                     await asyncio.sleep(2 ** attempt)
 
+        # Final dump of the last raw response so it shows up even when the
+        # error came from the loop's bookkeeping rather than a fresh parse.
+        # The ``exhausted`` marker is non-None so it always bypasses the
+        # success-only filter.
+        if last_response is not None:
+            _dump_raw(last_response, self.max_retries, "exhausted")
+
         get_reporter().record_fallback(
             "blog_generator.generation_failed",
             f"chunk {chunk.index} 文本生成失败（{last_error}），已停止运行",
-            detail={"chunk_index": chunk.index},
+            detail={
+                "chunk_index": chunk.index,
+                "attempts": self.max_retries + 1,
+                "last_response_chars": len(last_response) if last_response else 0,
+                "raw_dump_path": str(raw_dump_path) if raw_dump_path else "",
+                "last_error": str(last_error),
+            },
         )
         raise GenerationError(
             f"chunk {chunk.index} 文本模型重试 {self.max_retries + 1} 次后"

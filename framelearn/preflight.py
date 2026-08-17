@@ -117,6 +117,19 @@ def validate_chunking_config() -> None:
     if int(config_get("blog_gen.vision_max_calls", 3)) < 1:
         raise ConfigurationError("blog_gen.vision_max_calls 必须大于等于 1")
 
+    raw_enabled = config_get("blog_gen.dump_raw_responses", True)
+    if not isinstance(raw_enabled, bool):
+        raise ConfigurationError(
+            "blog_gen.dump_raw_responses 必须是布尔值，"
+            f"当前值：{raw_enabled!r}"
+        )
+    raw_on_success = config_get("blog_gen.dump_raw_on_success", False)
+    if not isinstance(raw_on_success, bool):
+        raise ConfigurationError(
+            "blog_gen.dump_raw_on_success 必须是布尔值，"
+            f"当前值：{raw_on_success!r}"
+        )
+
 
 def validate_asr_config() -> None:
     """Validate ASR settings only when audio transcription is actually needed."""

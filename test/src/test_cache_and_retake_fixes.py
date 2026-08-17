@@ -169,7 +169,9 @@ class _StubEvaluator(VisionFrameEvaluator):
         self.batch_size = 8
         self._decisions = list(decisions_per_round)
 
-    async def _evaluate_batch(self, items):
+    async def _evaluate_batch(
+        self, items, raw_dump_path=None, dump_only_on_failure=True
+    ):
         decisions = self._decisions.pop(0)
         out = []
         for item, (retake, retake_ts) in zip(items, decisions):

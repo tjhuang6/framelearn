@@ -235,6 +235,8 @@ async def _process_chunk_async(
     blog_generator: BlogGenerator,
     evaluator: VisionFrameEvaluator,
     frame_match_tolerance: float,
+    raw_dump_path: Path | None = None,
+    dump_only_on_failure: bool = True,
 ) -> _ChunkPipelineResult:
     """Run text generation -> anchor resolution -> vision review for one chunk.
 
@@ -244,7 +246,12 @@ async def _process_chunk_async(
     chunk_index = chunk.index
 
     # 4. Text model: faithful blog prose + frame anchors.
-    output = await blog_generator.generate(chunk, chunk_frames)
+    output = await blog_generator.generate(
+        chunk,
+        chunk_frames,
+        raw_dump_path=raw_dump_path,
+        dump_only_on_failure=dump_only_on_failure,
+    )
     output = _globalize_chunk_anchors(chunk_index, output)
 
     # 5. Validate anchors / bind frames. FFmpeg is synchronous, so run it
@@ -264,7 +271,13 @@ async def _process_chunk_async(
     if not eval_items:
         evaluations: list[FrameEvaluation] = []
     else:
-        evaluations = await evaluator.evaluate(eval_items, video_path, temp_frames)
+        evaluations = await evaluator.evaluate(
+            eval_items,
+            video_path,
+            temp_frames,
+            raw_dump_path=raw_dump_path,
+            dump_only_on_failure=dump_only_on_failure,
+        )
 
     return _ChunkPipelineResult(
         chunk_index=chunk_index,
@@ -280,14 +293,28 @@ def _process_chunk_worker(
         str,
         Path,
         float,
+        Path | None,
+        bool,
     ],
 ) -> _ChunkPipelineResult:
     """Process one chunk inside a ProcessPoolExecutor worker.
 
     Each worker gets its own ``RunReporter``; the parent replays those
-    events into the global reporter after the pool finishes.
+    events into the global reporter after the pool finishes. Workers
+    also append raw LLM responses to ``job[5]`` (an absolute
+    ``output/temp/raw_responses.jsonl`` path created by the parent),
+    giving the operator a single interleaved transcript of every
+    attempt across every chunk.
     """
-    chunk, chunk_frames, video_path, temp_frames, frame_match_tolerance = job
+    (
+        chunk,
+        chunk_frames,
+        video_path,
+        temp_frames,
+        frame_match_tolerance,
+        raw_dump_path,
+        dump_only_on_failure,
+    ) = job
     reporter = RunReporter(video_name="")
     set_reporter(reporter)
     try:
@@ -302,6 +329,8 @@ def _process_chunk_worker(
                 blog_generator,
                 evaluator,
                 frame_match_tolerance,
+                raw_dump_path,
+                dump_only_on_failure,
             )
         )
         result.reporter = reporter
@@ -383,6 +412,23 @@ class ChunkedDocGenerator:
         keep_temp_frames = bool(config_get("video.keep_temp_files", False))
 
         try:
+            # 0. Post-mortem dump for raw LLM responses. Controlled by
+            # ``[blog_gen] dump_raw_responses`` and
+            # ``dump_raw_on_success`` — both default to capturing only
+            # failed attempts so a clean run produces an empty (or
+            # absent) file. The path is recorded in run-report.json so
+            # the operator can inspect it after the fact.
+            raw_dump_path: Path | None = None
+            if bool(config_get("blog_gen.dump_raw_responses", True)):
+                raw_dump_path = temp_dir / "raw_responses.jsonl"
+                if raw_dump_path.exists():
+                    # Fresh run: previous content is stale and would mix
+                    # chunk indices across runs.
+                    raw_dump_path.unlink()
+            dump_only_on_failure = not bool(
+                config_get("blog_gen.dump_raw_on_success", False)
+            )
+
             # 1. Chunk raw SRT first (option A).
             print(f"切段（每段 {self.segment_minutes:g} 分钟）...")
             chunker = SRTChunker(segment_minutes=self.segment_minutes)
@@ -434,6 +480,8 @@ class ChunkedDocGenerator:
                     frames_by_chunk,
                     video_path,
                     temp_frames,
+                    raw_dump_path,
+                    dump_only_on_failure,
                 )
             else:
                 print(
@@ -455,6 +503,8 @@ class ChunkedDocGenerator:
                             blog_generator,
                             evaluator,
                             self.frame_match_tolerance,
+                            raw_dump_path,
+                            dump_only_on_failure,
                         )
 
                 chunk_results = await asyncio.gather(
@@ -540,6 +590,8 @@ class ChunkedDocGenerator:
         frames_by_chunk: dict[int, list[CandidateFrame]],
         video_path: str,
         temp_frames: Path,
+        raw_dump_path: Path | None = None,
+        dump_only_on_failure: bool = True,
     ) -> list[_ChunkPipelineResult]:
         """Run every chunk in its own process, bounded by ``concurrency``.
 
@@ -557,6 +609,8 @@ class ChunkedDocGenerator:
                 str(Path(video_path).resolve()),
                 Path(temp_frames).resolve(),
                 self.frame_match_tolerance,
+                raw_dump_path,
+                dump_only_on_failure,
             )
             for chunk in chunks
         ]

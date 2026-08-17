@@ -32,7 +32,9 @@ def test_anchored_pipeline_generates_both_markdown_files(tmp_path, monkeypatch):
         def __init__(self, *args, **kwargs):
             pass
 
-        async def generate(self, chunk, frames):
+        async def generate(
+            self, chunk, frames, raw_dump_path=None, dump_only_on_failure=True
+        ):
             assert frames and frames[0].path == str(candidate)
             return BlogGeneratorOutput(
                 blog_markdown="博客正文 [[FRAME:a1@3.0]]",
@@ -52,7 +54,14 @@ def test_anchored_pipeline_generates_both_markdown_files(tmp_path, monkeypatch):
         def __init__(self, *args, **kwargs):
             pass
 
-        async def evaluate(self, items, video_path, temp_frames):
+        async def evaluate(
+            self,
+            items,
+            video_path,
+            temp_frames,
+            raw_dump_path=None,
+            dump_only_on_failure=True,
+        ):
             return [
                 FrameEvaluation(
                     anchor_id=item.anchor_id,
@@ -111,7 +120,9 @@ def test_one_chunk_failure_aborts_run_without_degraded_output(tmp_path, monkeypa
         def __init__(self, *args, **kwargs):
             pass
 
-        async def generate(self, chunk, frames):
+        async def generate(
+            self, chunk, frames, raw_dump_path=None, dump_only_on_failure=True
+        ):
             if chunk.index == 0:
                 return BlogGeneratorOutput(
                     blog_markdown="第一段正文",
@@ -123,7 +134,14 @@ def test_one_chunk_failure_aborts_run_without_degraded_output(tmp_path, monkeypa
         def __init__(self, *args, **kwargs):
             pass
 
-        async def evaluate(self, items, video_path, temp_frames):
+        async def evaluate(
+            self,
+            items,
+            video_path,
+            temp_frames,
+            raw_dump_path=None,
+            dump_only_on_failure=True,
+        ):
             return []
 
     monkeypatch.setattr(module, "BlogGenerator", FlakyBlogGenerator)

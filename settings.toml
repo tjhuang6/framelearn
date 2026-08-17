@@ -220,3 +220,12 @@ vision_max_tokens = 32768
 # 一次看 20 张图时模型经常漏决策；拆成小批能显著提高 JSON 完整率。
 vision_batch_size = 8
 
+# 文本/视觉模型失败时是否把每次尝试的原始响应写到
+# output/<任务名>/temp/raw_responses.jsonl，便于事后诊断。
+# run-report.json 的 fallbacks[].detail.raw_dump_path 会同步给出该路径。
+dump_raw_responses = true
+
+# 仅在模型生成失败时记录（推荐）。设为 true 时成功响应也落盘，
+# 适合需要审计模型输出质量或 A/B 评测的场景。
+dump_raw_on_success = false
+

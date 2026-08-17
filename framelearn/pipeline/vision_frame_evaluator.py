@@ -16,6 +16,7 @@ bounded by ``blog_gen.max_retakes``.
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -313,14 +314,59 @@ class VisionFrameEvaluator:
         items: list[AnchorFrame],
         video_path: str,
         temp_frames: Path,
+        raw_dump_path: Path | None = None,
+        dump_only_on_failure: bool = True,
     ) -> list[FrameEvaluation]:
         """Evaluate a list of anchor frames.
 
         Retake requests are handled inside this method: the frame is
         captured again at the requested timestamp and re-evaluated.
+
+        ``raw_dump_path``, when provided, receives every raw vision-model
+        response (one JSON object per attempt, with anchor id, attempt
+        number, and parse outcome). This is the post-mortem trail for
+        runs where an anchor exhausts the retake budget — without it the
+        only evidence is the ``GenerationError`` raised at the end of
+        the retry loop.
+
+        ``dump_only_on_failure`` controls whether successful parses
+        also land in the dump. Defaults to True so a clean run does
+        not produce a giant audit file; failures always dump regardless.
         """
         if not items:
             return []
+
+        def _dump_raw(
+            response: str | None,
+            attempt: int,
+            anchor_id: str,
+            parse_error: str | None,
+        ) -> None:
+            if raw_dump_path is None or response is None:
+                return
+            if dump_only_on_failure and parse_error is None:
+                # Success path: caller has not asked for an audit trail.
+                return
+            try:
+                raw_dump_path.parent.mkdir(parents=True, exist_ok=True)
+                with raw_dump_path.open("a", encoding="utf-8") as fh:
+                    fh.write(
+                        json.dumps(
+                            {
+                                "stage": "vision_frame_evaluator",
+                                "anchor_id": anchor_id,
+                                "attempt": attempt,
+                                "parse_error": parse_error,
+                                "response_chars": len(response),
+                                "response": response,
+                            },
+                            ensure_ascii=False,
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                # Dump failures must never mask the real failure path.
+                pass
 
         pending = list(items)
         final: list[FrameEvaluation] = []
@@ -333,7 +379,13 @@ class VisionFrameEvaluator:
             evaluations: list[FrameEvaluation] = []
             for start in range(0, len(pending), self.batch_size):
                 batch = pending[start : start + self.batch_size]
-                evaluations.extend(await self._evaluate_batch(batch))
+                evaluations.extend(
+                    await self._evaluate_batch(
+                        batch,
+                        raw_dump_path=raw_dump_path,
+                        dump_only_on_failure=dump_only_on_failure,
+                    )
+                )
 
             next_round: list[AnchorFrame] = []
 
@@ -409,7 +461,10 @@ class VisionFrameEvaluator:
         return final
 
     async def _evaluate_batch(
-        self, items: list[AnchorFrame]
+        self,
+        items: list[AnchorFrame],
+        raw_dump_path: Path | None = None,
+        dump_only_on_failure: bool = True,
     ) -> list[FrameEvaluation]:
         """Evaluate a batch; retry/repair until every item has a decision.
 
@@ -418,6 +473,36 @@ class VisionFrameEvaluator:
         the retry budget, the whole run fails with
         :class:`GenerationError`.
         """
+
+        def _dump_batch(
+            response: str | None,
+            attempt: int,
+            parse_error: str | None,
+        ) -> None:
+            if raw_dump_path is None or response is None:
+                return
+            if dump_only_on_failure and parse_error is None:
+                # Success path: caller has not asked for an audit trail.
+                return
+            try:
+                raw_dump_path.parent.mkdir(parents=True, exist_ok=True)
+                with raw_dump_path.open("a", encoding="utf-8") as fh:
+                    fh.write(
+                        json.dumps(
+                            {
+                                "stage": "vision_frame_evaluator",
+                                "attempt": attempt,
+                                "parse_error": parse_error,
+                                "response_chars": len(response),
+                                "anchor_ids": [it.anchor_id for it in items],
+                                "response": response,
+                            },
+                            ensure_ascii=False,
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                pass
 
         def build_segments(batch: list[AnchorFrame]) -> list[dict]:
             segments = [{"type": "text", "text": EVALUATOR_PROMPT}]
@@ -470,11 +555,13 @@ class VisionFrameEvaluator:
 
                 parsed = _parse_evaluations(response, current_items)
                 if parsed is not None:
+                    _dump_batch(response, attempt, None)
                     return parsed
 
                 partial = _parse_evaluations_lenient(response, current_items)
                 if partial is None:
                     last_raw_response = response
+                    _dump_batch(response, attempt, "schema_mismatch")
                     raise ValueError(
                         "VisionFrameEvaluator response did not match schema"
                     )
@@ -514,14 +601,28 @@ class VisionFrameEvaluator:
             except ConfigurationError:
                 raise
             except Exception as e:
+                # Network / timeout / unknown errors. We already
+                # attempted to dump a parsed (or schema-mismatched)
+                # response inside the try-block above; this branch
+                # only fires when no response arrived at all. Either
+                # way, keep the error for the final report.
                 last_error = e
                 if attempt < self.max_retries:
                     await asyncio.sleep(2 ** attempt)
 
+        # Final marker so operators can see how many attempts actually
+        # ran and which response was the last one the parser saw.
+        if last_raw_response is not None:
+            _dump_batch(last_raw_response, self.max_retries, "exhausted")
+
         get_reporter().record_fallback(
             "vision_frame_evaluator.generation_failed",
             f"视觉验图失败（{last_error}），已停止运行",
-            detail={"pending_items": len(current_items)},
+            detail={
+                "pending_items": len(current_items),
+                "raw_dump_path": str(raw_dump_path) if raw_dump_path else "",
+                "last_error": str(last_error),
+            },
         )
         raise GenerationError(
             f"视觉模型重试 {self.max_retries + 1} 次后仍有 "
